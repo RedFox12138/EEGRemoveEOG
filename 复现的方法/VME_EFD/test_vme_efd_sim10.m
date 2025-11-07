@@ -63,7 +63,7 @@ fprintf('===================\n\n');
 % ---- 2) 路径：确保能找到 VME 实现 ----
 thisDir = fileparts(mfilename('fullpath'));
 addpath(thisDir); % 自身
-addpath(fullfile(fileparts(thisDir), 'VME_GMETV', 'VME')); % vme.m 所在目录
+addpath(fullfile(thisDir, 'VME')); % vme.m 所在目录
 
 % ---- 3) 调参与去伪迹 ----
 doTuning = false; % 固定最优参数，关闭自动调参

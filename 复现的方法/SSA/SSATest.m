@@ -2,7 +2,17 @@
 % clear; clc; close all;
 close all
 
-%% 0. 数据来源设置（与 ACMD/example_synth_acmd.m 对齐）
+%% 0. 运行模式设置（可快速切换）
+runMode = 'paper';                  % 'paper' = 论文原始流程 | 'robust' = 稳健增强版
+enableVisualize = true;             % true = 绘制调试图 | false = 静默运行
+enableVerbose = true;               % true = 打印日志 | false = 最小输出
+
+% 官方 CISSA 路径与入口（若已下载官方实现，可在此处填写目录与主函数名）
+cissa.useOfficial = false;          % false = 使用内置实现（官方版需手动配置路径）
+cissa.path = '';                    % 例如: 'd:/path/to/CISSA'（留空则不额外加路径）
+cissa.entry = '';                   % 例如: 'CiSSA'（留空将尝试常见命名）
+
+%% 1. 数据来源设置（与 ACMD/example_synth_acmd.m 对齐）
 useWorkspaceVars = true;            % 优先从工作区变量读取（sim10_con / sim10_resampled）
 contVar = 'sim10_con';              % 污染信号变量名
 cleanVar = 'sim10_resampled';       % 干净参考变量名（可为空）
@@ -49,8 +59,11 @@ else
     end
 end
 
-%% 2. 调用去噪函数（默认参数，fs 来自数据或默认 200Hz）
-[denoised_eeg, eog_artifact] = ci_ssa_eog_removal(noisy_eeg, 'fs', fs);
+%% 2. 调用去噪函数（使用顶部设置的模式与可视化开关）
+fprintf('\n========== CI-SSA 眼电去噪 [模式: %s] ==========\n', upper(runMode));
+[denoised_eeg, eog_artifact] = ci_ssa_eog_removal(noisy_eeg, 'fs', fs, ...
+    'mode', runMode, 'visualize', enableVisualize, 'verbose', enableVerbose, ...
+    'useOfficialCISSA', cissa.useOfficial, 'cissaPath', cissa.path, 'cissaEntry', cissa.entry);
 
 % 3. 定量验证（若提供了干净参考：RRMSE+CC）
 if ~isempty(eeg_clean)

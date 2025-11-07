@@ -1,13 +1,15 @@
-import scipy
+"""
+ASNet测试脚本
+加载最佳模型,在测试集上进行推理,保存预测结果为.mat格式
+"""
+
+import scipy.io as sio
 import torch
-import torch.optim as optim
 import torch.utils.data as Data
-import torch.nn as nn
 import os
 import numpy as np
 from time import time
 from torch.utils.data import Dataset
-import matplotlib.pyplot as plt
 from ASNet import ASNet
 
 BATCH_SIZE = 50
@@ -39,126 +41,126 @@ class EEGDataset(Dataset):
 
         return noisy_normalized, clean, norm_factor
 
-def get_data():
-    # 加载已经分割好的数据
-    # raw_eeg_segments = np.load('../Contaminated.npy', allow_pickle=True)
-    # clean_eeg_segments = np.load('../Pure_Data.npy', allow_pickle=True)
-    raw_eeg_segments = scipy.io.loadmat('D:/Pycharm_Projects/EOG Remove/生成全模拟数据/已经生成好的数据/Contaminated.mat')['contaminatedEEG']
-    clean_eeg_segments = scipy.io.loadmat('D:/Pycharm_Projects/EOG Remove/生成全模拟数据/已经生成好的数据/Pure_Data.mat')['pureEEG']
-
-    # 数据集拆分 (例如, 80% 训练, 10% 验证, 10% 测试)
+def load_test_data():
+    """加载测试数据"""
+    raw_eeg_segments = np.load(r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Contaminated.npy', allow_pickle=True)
+    clean_eeg_segments = np.load(r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Pure_Data.npy', allow_pickle=True)
+    
+    # 数据集拆分 (80% 训练, 10% 验证, 10% 测试)
     num_samples = len(raw_eeg_segments)
-    train_end = int(num_samples * 0.8)
     verify_end = int(num_samples * 0.9)
-
-    train_input = raw_eeg_segments[:train_end]
-    verify_input = raw_eeg_segments[train_end:verify_end]
+    
     test_input = raw_eeg_segments[verify_end:]
-
-    train_output = clean_eeg_segments[:train_end]
-    verify_output = clean_eeg_segments[train_end:verify_end]
     test_output = clean_eeg_segments[verify_end:]
-
-    train_dataset = EEGDataset(train_input, train_output, is_train=True)
-    verify_dataset = EEGDataset(verify_input, verify_output, is_train=False)
+    
     test_dataset = EEGDataset(test_input, test_output, is_train=False)
-
-    train_loader = Data.DataLoader(
-        dataset=train_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=True
-    )
-
-    verify_loader = Data.DataLoader(
-        dataset=verify_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False
-    )
-
     test_loader = Data.DataLoader(
         dataset=test_dataset,
         batch_size=BATCH_SIZE,
         shuffle=False
     )
-    return train_loader, verify_loader, test_loader
+    
+    return test_loader, test_output
 
 
-
-
-def test(model, device, test_loader, num, num_x, input_z, output_z, pre_z):
+def test_model(model, device, test_loader):
+    """
+    在测试集上进行推理
+    
+    Returns:
+        predictions: 预测结果列表
+        targets: 真实标签列表
+        time_per_sample: 单样本推理时间
+    """
     model.eval()
-    step_num=0
+    
+    all_predictions = []
+    all_targets = []
+    sample_count = 0
+    
+    start_time = time()
+    
     with torch.no_grad():
         for batch_idx, (test_input, test_output, norm_factors) in enumerate(test_loader):
-            test_input=test_input.float().to(device)
-            test_output=test_output.float().to(device)
-            norm_factors = norm_factors.float().to(device).view(-1, 1) # 调整形状以进行广播 [batch, 1]
+            sample_count += test_input.size(0)
             
+            test_input = test_input.float().to(device)
+            test_output = test_output.float().to(device)
+            norm_factors = norm_factors.float().to(device).view(-1, 1)
+            
+            # 推理
             output = model(test_input)
-            
-            # 反向恢复幅度
             output_restored = output * norm_factors
             
-            output_restored = output_restored.detach().cpu()
-            test_output = test_output.detach().cpu()
-            test_input = test_input.detach().cpu()
-            
-            # 数据已经是2D的，不需要squeeze
-            test_input_squeezed = test_input
-            test_output_squeezed = test_output
-            output_squeezed = output_restored
-            
-            batch_size_actual = test_input.size(0)
-            start_idx = step_num * BATCH_SIZE
-            end_idx = start_idx + batch_size_actual
-            
-            input_z[start_idx:end_idx] = test_input_squeezed
-            output_z[start_idx:end_idx] = test_output_squeezed
-            pre_z[start_idx:end_idx] = output_squeezed
-            step_num += 1
+            # 收集结果
+            all_predictions.append(output_restored.cpu().numpy())
+            all_targets.append(test_output.cpu().numpy())
+    
+    total_time = time() - start_time
+    time_per_sample = total_time / sample_count
+    
+    # 合并所有batch
+    all_predictions = np.concatenate(all_predictions, axis=0)
+    all_targets = np.concatenate(all_targets, axis=0)
+    
+    return all_predictions, all_targets, time_per_sample
 
 
-train_loader, verify_loader, test_loader = get_data()
-model = ASNet()
-model_name = 'ASNet'
+def main():
+    print("="*60)
+    print("ASNet 测试脚本")
+    print("="*60)
+    
+    # 设置设备
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(f"使用设备: {device}")
+    
+    # 加载模型
+    model = ASNet()
+    model_path = 'ASNet_best.pkl'
+    
+    if not os.path.exists(model_path):
+        print(f"错误: 找不到模型文件 {model_path}")
+        print("请先运行 train.py 训练模型")
+        return
+    
+    print(f"加载模型: {model_path}")
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
+    
+    # 加载测试数据
+    print("加载测试数据...")
+    test_loader, test_targets = load_test_data()
+    print(f"测试集样本数: {len(test_targets)}")
+    
+    # 进行推理
+    print("\n开始推理...")
+    predictions, targets, time_per_sample = test_model(model, device, test_loader)
+    
+    print(f"推理完成! 单样本推理时间: {time_per_sample*1000:.3f}ms")
+    
+    # 保存预测结果为.mat格式
+    output_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
+    os.makedirs(output_dir, exist_ok=True)
+    
+    pred_save_path = os.path.join(output_dir, 'ASNet_predictions.mat')
+    
+    sio.savemat(pred_save_path, {
+        'predictions': predictions,
+        'method': 'ASNet',
+        'inference_time_per_sample': time_per_sample
+    })
+    
+    print(f"\n预测结果已保存为.mat格式: {pred_save_path}")
+    print(f"预测结果形状: {predictions.shape}")
+    print(f"单样本推理时间: {time_per_sample*1000:.3f}ms")
+    print("\n请运行 evaluate_all_methods.py 来计算指标并进行对比")
+    print("="*60)
 
-print("torch.cuda.is_available() = ", torch.cuda.is_available())
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-model.to(device)
 
-begin_time = time()
-if os.path.exists(model_name + '.pkl'):
-    print('load model')
-    model.load_state_dict(torch.load(model_name + '.pkl'))
-else:
-    print('Warning: Model file not found. Using untrained model.')
-
-# 计算测试集的实际大小
-num_test_samples = len(test_loader.dataset)
-print(f'Number of test samples: {num_test_samples}')
-
-# 获取序列长度 (从第一个样本获取)
-first_sample = test_loader.dataset[0][0]  # 获取第一个输入样本
-sequence_length = first_sample.shape[0] if first_sample.ndim == 1 else first_sample.shape[1]  # 获取序列长度
-print(f'Sequence length: {sequence_length}')
-
-test_input_z = torch.zeros(num_test_samples, sequence_length)
-test_output_z = torch.zeros(num_test_samples, sequence_length)
-pre_z = torch.zeros(num_test_samples, sequence_length)
-
-test(model, device, test_loader, num_test_samples, num_test_samples//10, test_input_z, test_output_z, pre_z)
-
-# 绘制结果
-i = 100 if num_test_samples > 100 else 0
-x = np.linspace(0, 2, sequence_length)
-l0, = plt.plot(x, test_input_z[i])
-l1, = plt.plot(x, test_output_z[i])
-l2, = plt.plot(x, pre_z[i])
-plt.legend([l0, l1, l2], ['Contaminated EEG', 'Pure EEG', 'Corrected EEG'], loc='upper right')
-plt.xlabel('Time (s)')  # 设置x轴标签
-plt.ylabel('Amplitude(mV)')  # 设置y轴标签
-plt.show()
+if __name__ == "__main__":
+    main()
 
 

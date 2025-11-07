@@ -8,7 +8,7 @@ fprintf('=== VME-EFD Quick Test ===\n\n');
 % 添加路径
 thisDir = fileparts(mfilename('fullpath'));
 addpath(thisDir);
-addpath(fullfile(fileparts(thisDir), 'VME_GMETV', 'VME'));
+addpath(fullfile(thisDir, 'VME'));
 
 % 生成测试信号
 fs = 200;  % Hz

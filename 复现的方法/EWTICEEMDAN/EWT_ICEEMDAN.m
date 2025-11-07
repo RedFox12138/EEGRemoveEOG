@@ -173,9 +173,14 @@ NR = 100;             % 集成次数(实现次数)
 MaxIter = 5000;       % 最大迭代次数
 SNRFlag = 1;          % SNR标志: 1-每级递增, 2-所有级相同
 
+% 创建时间向量用于ICEEMDAN
+t = (0:length(signal)-1) / fs;  % 时间向量(秒)
+
 % 执行 ICEEMDAN 分解
 try
-    IMFs = pICEEMDAN(signal,t,Nstd,NR,MaxIter);
+    % pICEEMDAN(data, FsOrT, Nstd, NE, MaxIter)
+    % 这里用fs（采样频率）而不是时间向量t，因为更简单
+    IMFs = pICEEMDAN(signal_low, fs, Nstd, NR, MaxIter);
     num_imfs = size(IMFs, 1);
     fprintf('ICEEMDAN 分解完成! 共得到 %d 个 IMF 分量\n', num_imfs);
     
@@ -230,14 +235,16 @@ if iceemdan_success
     fprintf('\n========== 样本熵计算与筛选 ==========\n');
     
     % 样本熵阈值
-    sampen_threshold = 0.4;
+    sampen_threshold = 0.3;
     
     % 计算每个 IMF 的样本熵
     sampen_values = zeros(num_imfs, 1);
     for i = 1:num_imfs
         try
-            Samp = SampEn(IMFs(i, :));
-            sampen_values(i) = Samp(3);  % 取第3个值
+            % SampEn函数使用name-value pairs参数
+            % 默认参数：m=2, tau=1, r=0.2*std(Sig)
+            Samp = SampEn(IMFs(i, :), 'm', 2, 'r', 0.2*std(IMFs(i, :)));
+            sampen_values(i) = Samp(end);  % 取最后一个值（m=2的样本熵）
         catch ME
             warning('IMF%d 样本熵计算失败: %s', i, ME.message);
             sampen_values(i) = 0;  % 计算失败则设为0
@@ -309,365 +316,108 @@ else
     num_removed = 0;
 end
 
-%% ========== 时域可视化 ==========
-fprintf('\n正在绘制时域图...\n');
-
-t = (0:length(signal)-1) / fs;  % 时间向量(秒)
-
-% 创建时域图窗口 - 显示所有 IMF 分量
-fig1 = figure('Name', 'ICEEMDAN 时域分解', 'Position', [50, 50, 1400, 1000]);
-
-% 原始信号
-subplot(num_total_components + 1, 1, 1);
-plot(t, signal, 'k', 'LineWidth', 1);
-title('原始信号', 'FontSize', 12, 'FontWeight', 'bold');
-ylabel('幅值');
-grid on;
-xlim([t(1), t(end)]);
-
-% 各个 IMF 和高频分量
-for i = 1:num_total_components
-    subplot(num_total_components + 1, 1, i + 1);
+%% ========== 绘制眼电去噪结果对比图 ==========
+if iceemdan_success
+    fprintf('\n正在绘制眼电去噪结果对比图...\n');
     
-    % 根据是否保留来设置颜色
-    if iceemdan_success && i <= num_imfs
-        if imf_keep_mask(i)
-            % 保留的 IMF: 蓝色
-            plot(t, all_components(i, :), 'b-', 'LineWidth', 1);
-        else
-            % 去除的 IMF (眼电): 红色
-            plot(t, all_components(i, :), 'r-', 'LineWidth', 1);
-        end
-    else
-        % 高频分量或其他: 默认颜色
-        plot(t, all_components(i, :), 'LineWidth', 1);
-    end
+    % 创建时间向量
+    t = (0:length(signal)-1) / fs;
     
-    % 添加标题,包含样本熵和状态信息
-    if iceemdan_success && i <= num_imfs
-        title(sprintf('%s | SampEn=%.4f | %s', component_names{i}, ...
-            sampen_values(i), imf_status{i}), 'FontSize', 9);
-    else
-        title(sprintf('%s', component_names{i}), 'FontSize', 10);
-    end
+    % 创建图形窗口
+    figure('Name', 'EWT-ICEEMDAN眼电去噪结果对比', 'Position', [100, 100, 1400, 900]);
     
-    ylabel('幅值');
+    % ========== 子图1: 原始含噪信号（时域）==========
+    subplot(3, 2, 1);
+    plot(t, signal, 'k', 'LineWidth', 1);
+    title('原始含眼电伪迹的脑电信号', 'FontSize', 11, 'FontWeight', 'bold');
+    ylabel('幅值 (μV)');
+    xlabel('时间 (秒)');
     grid on;
     xlim([t(1), t(end)]);
     
-    % 最后一个子图添加 x 轴标签
-    if i == num_total_components
-        xlabel('时间 (秒)');
-    end
-end
-
-sgtitle('EWT + ICEEMDAN 时域分解结果 (红色=去除,蓝色=保留)', 'FontSize', 14, 'FontWeight', 'bold');
-
-%% ========== 频域可视化 ==========
-fprintf('正在绘制频域图...\n');
-
-% 计算功率谱
-nfft = 2^nextpow2(length(signal));
-freq_vec = (0:nfft/2) * fs / nfft;
-
-% 原始信号的功率谱
-[pxx_orig, f_orig] = pwelch(signal, hamming(min(length(signal), 512)), ...
-    [], nfft, fs);
-
-% 各 IMF 和高频分量的功率谱
-pxx_all = zeros(length(f_orig), num_total_components);
-for i = 1:num_total_components
-    [pxx_all(:, i), ~] = pwelch(all_components(i, :), ...
-        hamming(min(length(signal), 512)), [], nfft, fs);
-end
-
-% 创建频域图窗口
-fig2 = figure('Name', 'ICEEMDAN 频域分析', 'Position', [100, 100, 1400, 1000]);
-
-% 原始信号频谱
-subplot(num_total_components + 1, 1, 1);
-plot(f_orig, 10*log10(pxx_orig), 'k', 'LineWidth', 1.5);
-title('原始信号功率谱密度', 'FontSize', 12, 'FontWeight', 'bold');
-ylabel('功率 (dB)');
-grid on;
-xlim([0, min(fs/2, 50)]);  % 显示到 50Hz 或奈奎斯特频率
-
-% 标记截止频率
-hold on;
-xline(cutoff_freq, 'r--', sprintf('截止频率 %.1fHz', cutoff_freq), ...
-    'LineWidth', 2, 'LabelHorizontalAlignment', 'center', 'FontSize', 10);
-hold off;
-
-% 各个 IMF 和高频分量的频谱
-for i = 1:num_total_components
-    subplot(num_total_components + 1, 1, i + 1);
-    plot(f_orig, 10*log10(pxx_all(:, i)), 'LineWidth', 1.5);
-    
-    % 添加标题
-    title(sprintf('%s 功率谱', component_names{i}), 'FontSize', 10);
-    
-    ylabel('功率 (dB)');
-    grid on;
-    xlim([0, min(fs/2, 50)]);
-    
-    % 对于低频 IMF,标记低频范围;对于高频,标记高频范围
-    if i < num_total_components  % IMF 分量,标记低频范围
-        xline(0, 'g--', 'LineWidth', 1);
-        xline(cutoff_freq, 'g--', 'LineWidth', 1);
-        yl = ylim;
-        patch([0, cutoff_freq, cutoff_freq, 0], ...
-            [yl(1), yl(1), yl(2), yl(2)], 'g', 'FaceAlpha', 0.1, 'EdgeColor', 'none');
-    else  % 高频分量,标记高频范围
-        xline(cutoff_freq, 'r--', 'LineWidth', 1);
-        xline(fs/2, 'r--', 'LineWidth', 1);
-        yl = ylim;
-        patch([cutoff_freq, fs/2, fs/2, cutoff_freq], ...
-            [yl(1), yl(1), yl(2), yl(2)], 'r', 'FaceAlpha', 0.1, 'EdgeColor', 'none');
-    end
-    hold off;
-    
-    % 最后一个子图添加 x 轴标签
-    if i == num_total_components
-        xlabel('频率 (Hz)');
-    end
-end
-
-sgtitle('EWT + ICEEMDAN 频域分解结果', 'FontSize', 14, 'FontWeight', 'bold');
-
-%% ========== 综合对比图 ==========
-fprintf('正在绘制综合对比图...\n');
-
-fig3 = figure('Name', 'ICEEMDAN 综合分析', 'Position', [150, 150, 1600, 900]);
-
-% 左上: 原始信号时域
-subplot(2, 3, 1);
-plot(t, signal, 'k', 'LineWidth', 1.2);
-title('原始信号 - 时域', 'FontSize', 11, 'FontWeight', 'bold');
-xlabel('时间 (秒)');
-ylabel('幅值');
-grid on;
-
-% 中上: 低频分量(滤波后)时域
-subplot(2, 3, 2);
-plot(t, signal_low, 'b', 'LineWidth', 1.2);
-title('低频分量 (≤8Hz) - 时域', 'FontSize', 11, 'FontWeight', 'bold');
-xlabel('时间 (秒)');
-ylabel('幅值');
-grid on;
-
-% 右上: 高频分量时域
-subplot(2, 3, 3);
-plot(t, signal_high, 'r', 'LineWidth', 1.2);
-title('高频分量 (>8Hz) - 时域', 'FontSize', 11, 'FontWeight', 'bold');
-xlabel('时间 (秒)');
-ylabel('幅值');
-grid on;
-
-% 左下: 原始信号频域
-subplot(2, 3, 4);
-plot(f_orig, 10*log10(pxx_orig), 'k', 'LineWidth', 1.5);
-hold on;
-xline(cutoff_freq, 'r--', sprintf('截止 %.1fHz', cutoff_freq), ...
-    'LineWidth', 2, 'LabelHorizontalAlignment', 'center');
-hold off;
-title('原始信号 - 频域', 'FontSize', 11, 'FontWeight', 'bold');
-xlabel('频率 (Hz)');
-ylabel('功率 (dB)');
-grid on;
-xlim([0, min(fs/2, 50)]);
-
-% 中下: 所有 IMF 叠加(频域)
-subplot(2, 3, 5);
-hold on;
-for i = 1:num_imfs
-    if i < num_imfs
-        plot(f_orig, 10*log10(pxx_all(:, i)), 'LineWidth', 1.5, ...
-            'DisplayName', sprintf('IMF%d', i));
-    else
-        plot(f_orig, 10*log10(pxx_all(:, i)), 'LineWidth', 1.5, ...
-            'DisplayName', '残差');
-    end
-end
-plot(f_orig, 10*log10(pxx_all(:, end)), 'LineWidth', 2, ...
-    'DisplayName', '高频分量');
-hold off;
-title('所有分量 - 频域叠加', 'FontSize', 11, 'FontWeight', 'bold');
-xlabel('频率 (Hz)');
-ylabel('功率 (dB)');
-grid on;
-xlim([0, min(fs/2, 30)]);
-legend('Location', 'best', 'FontSize', 8);
-
-% 右下: 能量分布
-subplot(2, 3, 6);
-energy_all = sum(all_components.^2, 2);
-energy_percent_all = 100 * energy_all / sum(signal.^2);
-
-bar(1:num_total_components, energy_percent_all);
-title('各分量能量分布', 'FontSize', 11, 'FontWeight', 'bold');
-if num_total_components <= 10
-    set(gca, 'XTick', 1:num_total_components, 'XTickLabel', component_names, 'FontSize', 8);
-    xtickangle(45);
-else
-    xlabel('分量编号');
-end
-ylabel('能量占比 (%)');
-grid on;
-% 添加数值标签(只对能量较大的显示)
-for i = 1:num_total_components
-    if energy_percent_all(i) > 1  % 只显示能量>1%的
-        text(i, energy_percent_all(i), sprintf('%.1f%%', energy_percent_all(i)), ...
-            'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
-            'FontSize', 8);
-    end
-end
-
-sgtitle(sprintf('EWT + ICEEMDAN 综合分析 (共 %d 个分量)', num_total_components), ...
-    'FontSize', 14, 'FontWeight', 'bold');
-
-%% ========== 眼电去除效果对比图 ==========
-if iceemdan_success && num_removed > 0
-    fprintf('正在绘制眼电去除效果对比图...\n');
-    
-    fig4 = figure('Name', '眼电去除效果对比', 'Position', [200, 200, 1600, 900]);
-    
-    % 左上: 原始信号时域
-    subplot(2, 3, 1);
-    plot(t, signal, 'k', 'LineWidth', 1.2);
-    title('原始污染信号', 'FontSize', 11, 'FontWeight', 'bold');
+    % ========== 子图2: 去噪后信号（时域）==========
+    subplot(3, 2, 2);
+    plot(t, signal_final, 'b', 'LineWidth', 1);
+    title('去眼电后的脑电信号', 'FontSize', 11, 'FontWeight', 'bold');
+    ylabel('幅值 (μV)');
     xlabel('时间 (秒)');
-    ylabel('幅值');
     grid on;
+    xlim([t(1), t(end)]);
     
-    % 中上: 去除的眼电成分
-    subplot(2, 3, 2);
-    plot(t, removed_signal, 'r', 'LineWidth', 1.2);
-    title(sprintf('去除的眼电伪迹 (能量: %.2f%%)', energy_removed), ...
-        'FontSize', 11, 'FontWeight', 'bold');
+    % ========== 子图3: 被去除的眼电成分（时域）==========
+    subplot(3, 2, 3);
+    removed_signal = sum(IMFs(imf_remove_mask, :), 1);
+    plot(t, removed_signal, 'r', 'LineWidth', 1);
+    title(sprintf('去除的眼电伪迹成分 (共%d个IMF)', num_removed), 'FontSize', 11, 'FontWeight', 'bold');
+    ylabel('幅值 (μV)');
     xlabel('时间 (秒)');
-    ylabel('幅值');
     grid on;
+    xlim([t(1), t(end)]);
     
-    % 右上: 去除后的纯净信号
-    subplot(2, 3, 3);
-    plot(t, signal_final, 'b', 'LineWidth', 1.2);
-    title('去除眼电后的纯净信号', 'FontSize', 11, 'FontWeight', 'bold');
-    xlabel('时间 (秒)');
-    ylabel('幅值');
-    grid on;
-    
-    % 左下: 原始信号频域
-    [pxx_final, f_final] = pwelch(signal_final, hamming(min(length(signal), 512)), ...
-        [], nfft, fs);
-    [pxx_removed, f_removed] = pwelch(removed_signal, hamming(min(length(signal), 512)), ...
-        [], nfft, fs);
-    
-    subplot(2, 3, 4);
-    plot(f_orig, 10*log10(pxx_orig), 'k', 'LineWidth', 1.5);
-    title('原始信号功率谱', 'FontSize', 11, 'FontWeight', 'bold');
-    xlabel('频率 (Hz)');
-    ylabel('功率 (dB)');
-    xlim([0, min(fs/2, 50)]);
-    grid on;
-    
-    % 中下: 去除的眼电成分频域
-    subplot(2, 3, 5);
-    plot(f_removed, 10*log10(pxx_removed), 'r', 'LineWidth', 1.5);
+    % ========== 子图4: 原始与去噪后信号叠加对比 ==========
+    subplot(3, 2, 4);
+    plot(t, signal, 'Color', [0.7 0.7 0.7], 'LineWidth', 1.5, 'DisplayName', '原始信号');
     hold on;
-    xline(cutoff_freq, 'g--', sprintf('%.1fHz', cutoff_freq), 'LineWidth', 1.5);
+    plot(t, signal_final, 'b', 'LineWidth', 1, 'DisplayName', '去噪后信号');
     hold off;
-    title('去除的眼电伪迹功率谱', 'FontSize', 11, 'FontWeight', 'bold');
-    xlabel('频率 (Hz)');
-    ylabel('功率 (dB)');
-    xlim([0, min(fs/2, 50)]);
+    title('原始信号与去噪后信号叠加对比', 'FontSize', 11, 'FontWeight', 'bold');
+    ylabel('幅值 (μV)');
+    xlabel('时间 (秒)');
+    legend('Location', 'best');
     grid on;
+    xlim([t(1), t(end)]);
     
-    % 右下: 去除后的信号频域
-    subplot(2, 3, 6);
-    plot(f_final, 10*log10(pxx_final), 'b', 'LineWidth', 1.5);
+    % ========== 子图5: 功率谱对比 ==========
+    subplot(3, 2, 5);
+    % 计算功率谱
+    [pxx_orig, f_orig] = pwelch(signal, hamming(min(length(signal), 512)), ...
+        [], [], fs);
+    [pxx_final, f_final] = pwelch(signal_final, hamming(min(length(signal_final), 512)), ...
+        [], [], fs);
+    
+    plot(f_orig, 10*log10(pxx_orig), 'Color', [0.7 0.7 0.7], 'LineWidth', 1.5, 'DisplayName', '原始信号');
     hold on;
-    plot(f_orig, 10*log10(pxx_orig), 'k--', 'LineWidth', 1, 'DisplayName', '原始');
+    plot(f_final, 10*log10(pxx_final), 'b', 'LineWidth', 1.5, 'DisplayName', '去噪后信号');
     hold off;
-    title('去除眼电后信号功率谱', 'FontSize', 11, 'FontWeight', 'bold');
+    title('功率谱对比', 'FontSize', 11, 'FontWeight', 'bold');
     xlabel('频率 (Hz)');
-    ylabel('功率 (dB)');
+    ylabel('功率谱密度 (dB/Hz)');
     xlim([0, min(fs/2, 50)]);
-    legend('去除后', '原始', 'Location', 'best');
+    legend('Location', 'best');
     grid on;
     
-    sgtitle(sprintf('眼电去除效果对比 (去除 %d 个IMF, 样本熵阈值=%.2f)', ...
-        num_removed, sampen_threshold), 'FontSize', 14, 'FontWeight', 'bold');
+    % ========== 子图6: 样本熵分布 ==========
+    subplot(3, 2, 6);
+    bar(1:num_imfs, sampen_values, 'FaceColor', [0.3 0.6 0.9]);
+    hold on;
+    % 绘制阈值线
+    yline(sampen_threshold, 'r--', 'LineWidth', 2, 'Label', sprintf('阈值=%.2f', sampen_threshold));
+    % 标记被去除的IMF
+    removed_indices = find(imf_remove_mask);
+    if ~isempty(removed_indices)
+        bar(removed_indices, sampen_values(removed_indices), 'FaceColor', [1 0.3 0.3]);
+    end
+    hold off;
+    title('各IMF样本熵分布', 'FontSize', 11, 'FontWeight', 'bold');
+    xlabel('IMF编号');
+    ylabel('样本熵值');
+    grid on;
+    legend('保留的IMF', sprintf('阈值=%.2f', sampen_threshold), '去除的IMF(眼电)', ...
+        'Location', 'best');
+    
+    % ========== 总标题 ==========
+    sgtitle(sprintf('EWT-ICEEMDAN眼电去噪结果  |  去除%d个IMF  |  样本熵阈值=%.2f  |  相关系数=%.4f', ...
+        num_removed, sampen_threshold, correlation_before_after), ...
+        'FontSize', 13, 'FontWeight', 'bold');
+    
+    fprintf('眼电去噪结果对比图已生成！\n');
+    fprintf('图形说明:\n');
+    fprintf('  - 左上: 原始含眼电伪迹的脑电信号\n');
+    fprintf('  - 右上: 去除眼电后的干净脑电信号\n');
+    fprintf('  - 左中: 被识别并去除的眼电伪迹成分\n');
+    fprintf('  - 右中: 原始与去噪后信号的叠加对比\n');
+    fprintf('  - 左下: 功率谱对比（频域）\n');
+    fprintf('  - 右下: 各IMF的样本熵分布及筛选结果\n');
 end
 
-%% ========== 保存结果 ==========
-fprintf('\n========== EWT + ICEEMDAN 分析完成! ==========\n');
-fprintf('处理流程:\n');
-fprintf('  1. EWT 自定义边界分离: ≤%.1fHz 和 >%.1fHz\n', cutoff_freq, cutoff_freq);
-fprintf('  2. ICEEMDAN 分解低频: 得到 %d 个 IMF 分量\n', num_imfs);
-if iceemdan_success
-    fprintf('  3. 样本熵筛选: 保留 %d 个, 去除 %d 个 (阈值=%.2f)\n', ...
-        num_kept, num_removed, sampen_threshold);
-    fprintf('  4. 信号重构: 保留的IMF + 高频分量\n');
-end
-fprintf('  总分量数: %d\n', num_total_components);
-fprintf('\n各分量能量占比:\n');
-for i = 1:num_total_components
-    fprintf('  %s: %.2f%%\n', component_names{i}, energy_percent_all(i));
-end
-
-if iceemdan_success && num_removed > 0
-    fprintf('\n眼电去除结果:\n');
-    fprintf('  去除能量占比: %.2f%%\n', energy_removed);
-    fprintf('  重构信号相关系数: %.4f\n', correlation_before_after);
-    fprintf('  去除的 IMF 编号: ');
-    removed_indices = find(~imf_keep_mask);
-    fprintf('%s\n', mat2str(removed_indices(:)'));
-end
-
-% user_input = input('\n是否保存结果? (输入 y 保存,其他键跳过): ', 's');
-% 
-% if strcmpi(user_input, 'y')
-%     % 保存图像
-%     saveas(fig1, 'ICEEMDAN_时域分解.png');
-%     saveas(fig2, 'ICEEMDAN_频域分析.png');
-%     saveas(fig3, 'ICEEMDAN_综合分析.png');
-%     if exist('fig4', 'var')
-%         saveas(fig4, 'ICEEMDAN_眼电去除对比.png');
-%     end
-%     
-%     % 保存数据
-%     if iceemdan_success
-%         save('ICEEMDAN_结果.mat', 'IMFs', 'signal', 'signal_low', 'signal_high', ...
-%             'signal_final', 'removed_signal', 'sampen_values', 'imf_keep_mask', ...
-%             'all_components', 'component_names', 'fs', 'cutoff_freq', 'sampen_threshold');
-%     else
-%         save('ICEEMDAN_结果.mat', 'signal', 'signal_low', 'signal_high', ...
-%             'fs', 'cutoff_freq');
-%     end
-%     
-%     fprintf('结果已保存!\n');
-% end
-
-%% ========== 辅助函数: 生成模拟信号 ==========
-function signal = generate_demo_signal(fs)
-    % 生成包含多个频率成分的模拟脑电信号
-    t = 0:1/fs:10-1/fs;  % 10秒信号
-    
-    % 各种频率成分
-    delta = 0.8 * sin(2*pi*2*t);        % Delta波 (1-4 Hz)
-    theta = 0.6 * sin(2*pi*6*t);        % Theta波 (4-8 Hz)
-    alpha = 1.0 * sin(2*pi*10*t);       % Alpha波 (8-13 Hz)
-    beta = 0.4 * sin(2*pi*20*t);        % Beta波 (13-30 Hz)
-    gamma = 0.2 * sin(2*pi*40*t);       % Gamma波 (30-100 Hz)
-    
-    % 合成信号
-    signal = delta + theta + alpha + beta + gamma;
-    
-    % 添加白噪声
-    signal = signal + 0.1 * randn(size(signal));
-    
-    signal = signal(:);
-    
-    fprintf('生成模拟信号: %.1f 秒, 采样率 %d Hz\n', length(signal)/fs, fs);
-    fprintf('包含频率成分: 2Hz, 6Hz, 10Hz, 20Hz, 40Hz\n');
-end
+fprintf('\n========== EWT-ICEEMDAN 眼电去除完成！==========\n');

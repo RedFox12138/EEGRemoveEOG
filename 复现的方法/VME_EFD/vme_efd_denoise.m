@@ -28,7 +28,7 @@ function [y_denoised, info] = vme_efd_denoise(y, fs, params)
 %       .artifactIdx  被丢弃的层索引
 %       .alpha, .omega0
 %
-% 注：本函数依赖目录 VME_GMETV/VME 中的 vme.m。
+% 注：本函数依赖目录 VME/ 中的 vme.m。
 
 if nargin < 2
     error('Usage: vme_efd_denoise(y, fs, [params])');
@@ -305,7 +305,7 @@ end
 end
 
 function x = local_call_vme(y, alpha, omega0, fs, tau, tol)
-% 调用外部 VME 实现（VME_GMETV/VME/vme.m）
+% 调用外部 VME 实现（VME/vme.m）
 [u_d, ~] = vme(y(:).', alpha, omega0, fs, tau, tol); % 注意 vme 接受行向量
 % vme 返回行向量，转为列向量
 if isempty(u_d)
