@@ -3,7 +3,7 @@ ASNet测试脚本
 加载最佳模型,在测试集上进行推理,保存预测结果为.mat格式
 """
 
-import scipy.io as sio
+import scipy.io
 import torch
 import torch.utils.data as Data
 import os
@@ -43,15 +43,10 @@ class EEGDataset(Dataset):
 
 def load_test_data():
     """加载测试数据"""
-    raw_eeg_segments = np.load(r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Contaminated.npy', allow_pickle=True)
-    clean_eeg_segments = np.load(r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Pure_Data.npy', allow_pickle=True)
+    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
     
-    # 数据集拆分 (80% 训练, 10% 验证, 10% 测试)
-    num_samples = len(raw_eeg_segments)
-    verify_end = int(num_samples * 0.9)
-    
-    test_input = raw_eeg_segments[verify_end:]
-    test_output = clean_eeg_segments[verify_end:]
+    test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
+    test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
     
     test_dataset = EEGDataset(test_input, test_output, is_train=False)
     test_loader = Data.DataLoader(
@@ -145,16 +140,15 @@ def main():
     
     pred_save_path = os.path.join(output_dir, 'ASNet_predictions.mat')
     
-    sio.savemat(pred_save_path, {
+    scipy.io.savemat(pred_save_path, {
         'predictions': predictions,
-        'method': 'ASNet',
-        'inference_time_per_sample': time_per_sample
+        'time_per_sample': time_per_sample
     })
     
     print(f"\n预测结果已保存为.mat格式: {pred_save_path}")
     print(f"预测结果形状: {predictions.shape}")
     print(f"单样本推理时间: {time_per_sample*1000:.3f}ms")
-    print("\n请运行 evaluate_all_methods.py 来计算指标并进行对比")
+    print("\n✓ 完成！请运行统一指标计算脚本来评估所有方法。")
     print("="*60)
 
 
@@ -162,5 +156,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 

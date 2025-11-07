@@ -27,18 +27,11 @@ fprintf('==============================================\n\n');
 
 fprintf('加载数据...\n');
 
-data_contaminated = load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Contaminated.mat');
-data_clean = load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Pure_Data.mat');
+data_contaminated = load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Test_Contaminated.mat');
+data_clean = load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Test_Pure.mat');
 
-contaminated = data_contaminated.contaminated;
-clean = data_clean.pure;
-
-% 数据拆分
-num_samples = size(contaminated, 1);
-verify_end = floor(num_samples * 0.9);
-
-test_contaminated = contaminated(verify_end+1:end, :);
-test_clean = clean(verify_end+1:end, :);
+test_contaminated = data_contaminated.data;
+test_clean = data_clean.data;
 
 num_test = size(test_contaminated, 1);
 fprintf('测试集样本数: %d\n', num_test);
@@ -95,22 +88,9 @@ if ~exist(output_dir, 'dir')
 end
 
 pred_save_path = fullfile(output_dir, 'VME_EFD_predictions.mat');
-save(pred_save_path, 'predictions');
+save(pred_save_path, 'predictions', 'time_per_sample');
 
-fprintf('预测结果已保存: %s\n\n', pred_save_path);
-
-%% 计算评价指标
-fprintf('==============================================\n');
-fprintf('           计算评价指标\n');
-fprintf('==============================================\n\n');
-
-metrics = compute_eog_metrics(test_clean, predictions, fs);
-metrics.time_per_sample = time_per_sample;
-
-metrics_save_path = fullfile(output_dir, 'VME_EFD_metrics.mat');
-save(metrics_save_path, 'metrics');
-
-fprintf('\n指标结果已保存至: %s\n\n', metrics_save_path);
+fprintf('预测结果已保存: %s\n', pred_save_path);
 
 %% 打印汇总
 fprintf('==============================================\n');
@@ -118,9 +98,5 @@ fprintf('           测试完成汇总\n');
 fprintf('==============================================\n');
 fprintf('测试样本数:         %d\n', num_test);
 fprintf('单样本处理时间:     %.3f ms\n', time_per_sample * 1000);
-fprintf('----------------------------------------------\n');
-fprintf('RRMSE:              %.4f ± %.4f\n', metrics.RRMSE_mean, metrics.RRMSE_std);
-fprintf('CC:                 %.4f ± %.4f\n', metrics.CC_mean, metrics.CC_std);
-fprintf('RRMSE_PSD:          %.4f ± %.4f\n', metrics.RRMSE_PSD_mean, metrics.RRMSE_PSD_std);
-fprintf('MI:                 %.4f ± %.4f\n', metrics.MI_mean, metrics.MI_std);
 fprintf('==============================================\n');
+fprintf('\n✓ 完成！请运行统一指标计算脚本来评估所有方法。\n');

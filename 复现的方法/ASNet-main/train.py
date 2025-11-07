@@ -42,24 +42,16 @@ class EEGDataset(Dataset):
         return noisy_normalized, clean, norm_factor
 
 def get_data():
-    # 加载已经分割好的数据
-    raw_eeg_segments = np.load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Contaminated.npy', allow_pickle=True)
-    clean_eeg_segments = np.load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Pure_Data.npy', allow_pickle=True)
-    # raw_eeg_segments = scipy.io.loadmat('D:/Pycharm_Projects/EOG Remove/生成全模拟数据/已经生成好的数据/Contaminated.mat')['contaminatedEEG']
-    # clean_eeg_segments = scipy.io.loadmat('D:/Pycharm_Projects/EOG Remove/生成全模拟数据/已经生成好的数据/Pure_Data.mat')['pureEEG']
-
-    # 数据集拆分 (例如, 80% 训练, 10% 验证, 10% 测试)
-    num_samples = len(raw_eeg_segments)
-    train_end = int(num_samples * 0.8)
-    verify_end = int(num_samples * 0.9)
-
-    train_input = raw_eeg_segments[:train_end]
-    verify_input = raw_eeg_segments[train_end:verify_end]
-    test_input = raw_eeg_segments[verify_end:]
-
-    train_output = clean_eeg_segments[:train_end]
-    verify_output = clean_eeg_segments[train_end:verify_end]
-    test_output = clean_eeg_segments[verify_end:]
+    # 加载已经分割好的数据集（80% 训练, 10% 验证, 10% 测试）
+    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
+    
+    train_input = scipy.io.loadmat(f'{data_dir}/Train_Contaminated.mat')['data']
+    verify_input = scipy.io.loadmat(f'{data_dir}/Val_Contaminated.mat')['data']
+    test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
+    
+    train_output = scipy.io.loadmat(f'{data_dir}/Train_Pure.mat')['data']
+    verify_output = scipy.io.loadmat(f'{data_dir}/Val_Pure.mat')['data']
+    test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
 
     train_dataset = EEGDataset(train_input, train_output, is_train=True)
     verify_dataset = EEGDataset(verify_input, verify_output, is_train=False)

@@ -53,26 +53,17 @@ def get_data(data_path, batch_size):
     """
     加载数据并创建DataLoader
     """
-    # 加载已经分割好的数据
-    raw_eeg_segments = np.load(os.path.join(data_path, 'Contaminated.npy'), allow_pickle=True)
-    clean_eeg_segments = np.load(os.path.join(data_path, 'Pure_Data.npy'), allow_pickle=True)
+    # 加载已经分割好的数据集（80% 训练, 10% 验证, 10% 测试）
+    train_input = scipy.io.loadmat(os.path.join(data_path, 'Train_Contaminated.mat'))['data']
+    verify_input = scipy.io.loadmat(os.path.join(data_path, 'Val_Contaminated.mat'))['data']
+    test_input = scipy.io.loadmat(os.path.join(data_path, 'Test_Contaminated.mat'))['data']
     
-    print(f"加载数据: {raw_eeg_segments.shape}, {clean_eeg_segments.shape}")
-    print(f"时间点数量: {raw_eeg_segments.shape[1]}")
-
-    # 数据集拆分 (80% 训练, 10% 验证, 10% 测试)
-    num_samples = len(raw_eeg_segments)
-    train_end = int(num_samples * 0.8)
-    verify_end = int(num_samples * 0.9)
-
-    train_input = raw_eeg_segments[:train_end]
-    verify_input = raw_eeg_segments[train_end:verify_end]
-    test_input = raw_eeg_segments[verify_end:]
-
-    train_output = clean_eeg_segments[:train_end]
-    verify_output = clean_eeg_segments[train_end:verify_end]
-    test_output = clean_eeg_segments[verify_end:]
-
+    train_output = scipy.io.loadmat(os.path.join(data_path, 'Train_Pure.mat'))['data']
+    verify_output = scipy.io.loadmat(os.path.join(data_path, 'Val_Pure.mat'))['data']
+    test_output = scipy.io.loadmat(os.path.join(data_path, 'Test_Pure.mat'))['data']
+    
+    print(f"加载数据: 训练集={train_input.shape}, 验证集={verify_input.shape}, 测试集={test_input.shape}")
+    print(f"时间点数量: {train_input.shape[1]}")
     print(f"训练集: {len(train_input)}, 验证集: {len(verify_input)}, 测试集: {len(test_input)}")
 
     train_dataset = EEGDataset(train_input, train_output, is_train=True)

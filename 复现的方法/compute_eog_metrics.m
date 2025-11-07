@@ -95,8 +95,12 @@ function rrmse_psd_val = compute_rrmse_psd(s_true, s_pred, fs)
     
     % 使用pwelch计算功率谱密度
     nperseg = min(256, length(s_true));
-    [psd_true, ~] = pwelch(s_true, hamming(nperseg), [], [], fs);
-    [psd_pred, ~] = pwelch(s_pred, hamming(nperseg), [], [], fs);
+    noverlap = floor(nperseg / 2);
+    nfft = nperseg;
+    
+    % 正确的pwelch调用方式
+    [psd_true, ~] = pwelch(s_true, hamming(nperseg), noverlap, nfft, fs);
+    [psd_pred, ~] = pwelch(s_pred, hamming(nperseg), noverlap, nfft, fs);
     
     numerator = sqrt(mean((psd_true - psd_pred).^2));
     denominator = sqrt(mean(psd_true.^2));

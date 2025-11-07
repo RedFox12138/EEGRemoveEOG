@@ -13,12 +13,13 @@ import os
 import argparse
 import pandas as pd
 import matplotlib.pyplot as plt
+from time import time
 
 
 def test_model(I_model, M_model, device, test_loader):
     """
     测试模型并计算各项指标
-    返回每个样本的ACC, RRMSE, SNR列表
+    返回每个样本的ACC, RRMSE, SNR列表以及所有预测结果
     """
     I_model.eval()
     M_model.eval()
@@ -30,6 +31,9 @@ def test_model(I_model, M_model, device, test_loader):
     # 用于可视化的指标
     acc_e_list = []
     acc_n_list = []
+    
+    # 收集所有预测结果
+    all_predictions = []
 
     test_step_num = 0
     sum_acc = 0
@@ -60,6 +64,9 @@ def test_model(I_model, M_model, device, test_loader):
             e_outputs_denorm = e_outputs * norm_factors_2d
             n_outputs_denorm = n_outputs * norm_factors_2d
             z_denorm = z * norm_factors_2d
+            
+            # 收集预测结果
+            all_predictions.append(outputs_denorm.cpu().numpy())
 
             # 计算反归一化后的指标 (对每个样本)
             for i in range(outputs_denorm.shape[0]):
@@ -98,6 +105,9 @@ def test_model(I_model, M_model, device, test_loader):
                 sum_rrmse += rrmse
                 sum_snr += snr
 
+    # 合并所有预测结果
+    all_predictions = np.concatenate(all_predictions, axis=0)
+    
     # 计算平均值
     num_samples = len(acc_list)
     avg_acc = sum_acc / num_samples
@@ -113,7 +123,7 @@ def test_model(I_model, M_model, device, test_loader):
     print(f"平均SNR: {avg_snr:.2f} dB")
     print("="*80)
 
-    return acc_list, rrmse_list, snr_list, acc_e_list, acc_n_list
+    return all_predictions, acc_list, rrmse_list, snr_list, acc_e_list, acc_n_list
 
 
 def visualize_results(I_model, M_model, device, test_loader, save_dir, num_samples=10):
@@ -236,7 +246,8 @@ def main():
     _, _, test_loader = get_data(args.data_path, args.batch_size)
     
     # 获取数据的时间点数量
-    sample_data = np.load(os.path.join(args.data_path, 'Contaminated.npy'), allow_pickle=True)
+    import scipy.io
+    sample_data = scipy.io.loadmat(os.path.join(args.data_path, 'Test_Contaminated.mat'))['data']
     input_length = sample_data.shape[1]
     print(f"数据时间点: {input_length}")
 
@@ -264,9 +275,28 @@ def main():
 
     # 测试模型
     print("\n开始测试...")
-    acc_list, rrmse_list, snr_list, acc_e_list, acc_n_list = test_model(
+    start_time = time()
+    predictions, acc_list, rrmse_list, snr_list, acc_e_list, acc_n_list = test_model(
         I_model, M_model, device, test_loader
     )
+    test_time = time() - start_time
+    time_per_sample = test_time / len(predictions)
+    
+    # 保存预测结果为.mat格式
+    import scipy.io
+    pred_output_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
+    os.makedirs(pred_output_dir, exist_ok=True)
+    
+    pred_save_path = os.path.join(pred_output_dir, 'EEGIFNet_predictions.mat')
+    scipy.io.savemat(pred_save_path, {
+        'predictions': predictions,
+        'time_per_sample': time_per_sample
+    })
+    
+    print(f"\n预测结果已保存为.mat格式: {pred_save_path}")
+    print(f"预测结果形状: {predictions.shape}")
+    print(f"单样本推理时间: {time_per_sample*1000:.3f}ms")
+
 
     # 保存结果到CSV
     print(f"\n保存结果到 {args.result_dir}")
@@ -304,7 +334,7 @@ def main():
         vis_dir = os.path.join(args.result_dir, 'visualizations')
         visualize_results(I_model, M_model, device, test_loader, vis_dir, args.num_vis)
 
-    print("\n测试完成!")
+    print("\n✓ 完成！请运行统一指标计算脚本来评估所有方法。")
 
 
 if __name__ == '__main__':

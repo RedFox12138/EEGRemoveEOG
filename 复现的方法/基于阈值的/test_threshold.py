@@ -12,15 +12,9 @@ def load_test_data():
     """加载测试数据"""
     data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
     
-    contaminated = np.load(os.path.join(data_dir, 'Contaminated.npy'))
-    pure_data = np.load(os.path.join(data_dir, 'Pure_Data.npy'))
-    
-    # 测试集 (最后10%)
-    num_samples = contaminated.shape[0]
-    test_start = int(num_samples * 0.9)
-    
-    test_contaminated = contaminated[test_start:]
-    test_pure = pure_data[test_start:]
+    import scipy.io
+    test_contaminated = scipy.io.loadmat(os.path.join(data_dir, 'Test_Contaminated.mat'))['data']
+    test_pure = scipy.io.loadmat(os.path.join(data_dir, 'Test_Pure.mat'))['data']
     
     print(f"测试集形状: {test_contaminated.shape}")
     
@@ -107,15 +101,15 @@ def main():
     
     sio.savemat(pred_save_path, {
         'predictions': predictions,
-        'method': 'Threshold-based',
-        'processing_time_per_sample': time_per_sample
+        'time_per_sample': time_per_sample
     })
     
     print(f"\n预测结果已保存为.mat格式:")
     print(f"  {pred_save_path}")
     print(f"  形状: {predictions.shape}")
     print(f"  单样本处理时间: {time_per_sample*1000:.1f}ms")
-    print("\n请运行 evaluate_all_methods.py 来计算指标并进行对比")
+    
+    print("\n✓ 完成！请运行统一指标计算脚本来评估所有方法。")
     print("="*60)
 
 
