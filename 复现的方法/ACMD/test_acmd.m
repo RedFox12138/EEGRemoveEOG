@@ -36,10 +36,58 @@ num_test = size(test_contaminated, 1);
 fprintf('测试集样本数: %d\n', num_test);
 fprintf('信号长度: %d\n\n', size(test_contaminated, 2));
 
-%% 运行ACMD去噪
-fprintf('开始ACMD去噪...\n');
+%% 估计阈值ξ (论文Algorithm 2关键步骤)
+fprintf('估计阈值ξ...\n');
+
+% 加载训练集用于阈值估计
+data_train_contaminated = load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Train_Contaminated.mat');
+data_train_clean = load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Train_Pure.mat');
+
+train_contaminated = data_train_contaminated.data;
+train_clean = data_train_clean.data;
+
+% 采样一部分训练数据计算阈值(避免过慢)
+n_samples_for_threshold = min(50, size(train_contaminated, 1));
+psi_clean_list = zeros(n_samples_for_threshold, 1);
+psi_contaminated_list = zeros(n_samples_for_threshold, 1);
 
 fs = 200;  % 采样率
+
+fprintf('  从训练集采样%d个样本估计阈值...\n', n_samples_for_threshold);
+for i = 1:n_samples_for_threshold
+    % 对干净信号提取第一模态并计算峰计数
+    [~, info_clean] = oa_remove_acmd(train_clean(i, :), fs, struct('returnAll', true));
+    psi_clean_list(i) = info_clean.psi;
+    
+    % 对污染信号提取第一模态并计算峰计数
+    [~, info_cont] = oa_remove_acmd(train_contaminated(i, :), fs, struct('returnAll', true));
+    psi_contaminated_list(i) = info_cont.psi;
+    
+    if mod(i, 10) == 0
+        fprintf('    已处理 %d/%d\n', i, n_samples_for_threshold);
+    end
+end
+
+% 根据论文,阈值ξ = (mean(psi_clean) + mean(psi_contaminated)) / 2
+mean_psi_clean = mean(psi_clean_list);
+mean_psi_contaminated = mean(psi_contaminated_list);
+threshold_xi = (mean_psi_clean + mean_psi_contaminated) / 2;
+
+fprintf('  干净信号平均峰计数: %.2f\n', mean_psi_clean);
+fprintf('  污染信号平均峰计数: %.2f\n', mean_psi_contaminated);
+fprintf('  估计阈值ξ = %.2f\n\n', threshold_xi);
+
+%% 配置ACMD参数(严格按照论文)
+opts = struct();
+opts.threshold = threshold_xi;        % 使用估计的阈值
+opts.autoTune = true;                 % 开启自动调优(论文Fig.3)
+opts.tuneBW = 0.5:0.5:3;             % 扫描带宽范围
+opts.tuneFmax = 8:2:14;              % 扫描最大频率范围
+opts.returnAll = true;
+
+%% 运行ACMD去噪
+fprintf('开始ACMD去噪(使用阈值ξ=%.2f)...\n', threshold_xi);
+
 predictions = zeros(size(test_contaminated));
 
 % 记录时间
@@ -47,8 +95,8 @@ tic;
 
 for i = 1:num_test
     try
-        % 调用ACMD去噪函数
-        predictions(i, :) = oa_remove_acmd(test_contaminated(i, :), fs);
+        % 调用ACMD去噪函数,传入opts
+        predictions(i, :) = oa_remove_acmd(test_contaminated(i, :), fs, opts);
         
         % 显示进度
         if mod(i, 10) == 0

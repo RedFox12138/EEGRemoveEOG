@@ -126,9 +126,12 @@ class MA_INet(nn.Module):
         self.ex1 = Exchange()
         self.ex2 = Exchange()
         self.ex3 = Exchange()
+        self.ex1 = Exchange()
+        self.ex2 = Exchange()
+        self.ex3 = Exchange()
         self.i1 = Interaction_Block(32)
 
-        # 第二层
+        # 第二层 (源码MA_INet不使用Interaction Block，输入通道数保持32)
         self.c2_e = nn.Conv1d(in_channels=32, out_channels=32, kernel_size=9, stride=2, padding=4)
         self.batnorm2_e = nn.BatchNorm1d(num_features=32)
         self.relu2_e = nn.ReLU()
@@ -156,6 +159,8 @@ class MA_INet(nn.Module):
 
         self.i4 = Interaction_Block(64)
 
+        self.i4 = Interaction_Block(64)
+
         # 计算经过3次stride=2卷积后的长度
         # 1200 -> 600 -> 300 -> 150
         conv_output_length = input_length // 8  # 150
@@ -179,43 +184,57 @@ class MA_INet(nn.Module):
         self.fc5 = nn.Linear(input_length, input_length)
 
     def forward(self, x):
-        # EEG分支
+        # 第一层卷积 + BN + 激活
         e = self.c1_e(x)
         e = self.batnorm1_e(e)
-        e = self.relu1_e(e)
-        e = self.drop1_e(e)
-
-        # Noise分支
         n = self.c1_n(x)
         n = self.batnorm1_n(n)
+
+        e = self.relu1_e(e)
+        e = self.drop1_e(e)
         n = self.relu1_n(n)
         n = self.drop1_n(n)
+
+        # ⚠️ 源码MA_INet注释掉了Interaction Block（与main.py一致）
+        #e, n = self.ex1(e, n, self.batnorm1_e, self.batnorm1_n)
+        #e, n = self.i1(e, n)
 
         # 第二层
         e = self.c2_e(e)
         e = self.batnorm2_e(e)
-        e = self.relu2_e(e)
-        e = self.drop1_e(e)
-        
         n = self.c2_n(n)
         n = self.batnorm2_n(n)
+
+        e = self.relu2_e(e)
+        e = self.drop1_e(e)
         n = self.relu2_n(n)
         n = self.drop1_n(n)
+
+        # ⚠️ 源码MA_INet注释掉了Interaction Block
+        #e, n = self.ex2(e, n, self.batnorm2_e, self.batnorm2_n)
+        #e, n = self.i2(e, n)
 
         # 第三层
         e = self.c3_e(e)
         e = self.batnorm3_e(e)
-        e = self.relu3_e(e)
-        e = self.drop1_e(e)
-        
         n = self.c3_n(n)
         n = self.batnorm3_n(n)
+        
+        e = self.relu3_e(e)
+        e = self.drop1_e(e)
         n = self.relu3_n(n)
         n = self.drop1_n(n)
+
+        # ⚠️ 源码MA_INet注释掉了Interaction Block
+        #e, n = self.ex3(e, n, self.batnorm3_e, self.batnorm3_n)
+        #e, n = self.i3(e, n)
 
         # GRU层
         e, _ = self.rnn_e(e.permute(0, 2, 1))
         n, _ = self.rnn_n(n.permute(0, 2, 1))
+
+        # ⚠️ 源码MA_INet注释掉了i4
+        #e, n = self.i4(e.permute(0, 2, 1), n.permute(0, 2, 1))
 
         # Flatten
         e = e.reshape(e.size(0), -1)
@@ -224,16 +243,24 @@ class MA_INet(nn.Module):
         e = self.drop(e)
         n = self.drop(n)
 
-        # 全连接层
+        # 全连接层（⚠️ 源码MA_INet只处理e_out，n_out的中间层被注释掉）
         e_out = self.f1_e(e)
         n_out = self.f1_n(n)
 
         e_out = self.relu1(e_out)
+        #n_out = self.relu1(n_out)  # 源码注释掉
         e_out = self.drop(e_out)
+        #n_out = self.drop(n_out)    # 源码注释掉
+        
         e_out = self.fc2(e_out)
+        #n_out = self.fc3(n_out)     # 源码注释掉
         e_out = self.relu1(e_out)
+        #n_out = self.relu1(n_out)   # 源码注释掉
         e_out = self.drop(e_out)
+        #n_out = self.drop(n_out)    # 源码注释掉
+        
         e_out = self.fc4(e_out)
+        #n_out = self.fc5(n_out)     # 源码注释掉
 
         return e_out, n_out
 

@@ -7,15 +7,23 @@ import torch.optim as optim
 import torch.nn as nn
 import numpy as np
 from time import time
+import sys
+
+from sympy.physics.quantum.identitysearch import scipy
 from torch.utils.data import Dataset, DataLoader
 from EEGIFNet_1200 import MA_INet, MA_MNet, weights_init
 from config import cal_ACC_tensor, cal_RRMSE_tensor, cal_SNR
 import os
 import argparse
 
+from 复现的方法.metrics_utils import compute_all_metrics, print_metrics
+
+# 添加父目录到路径以导入metrics_utils
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 BATCH_SIZE = 256  # EEGIFNet原始batch size
 LEARNING_RATE = 5e-5  # EEGIFNet原始学习率
-EPOCHS = 80  # EEGIFNet原始训练轮数
+EPOCHS = 200  # EEGIFNet原始训练轮数
 
 class EEGDataset(Dataset):
     """
@@ -40,13 +48,11 @@ class EEGDataset(Dataset):
             norm_factor = 1.0  # 避免除以零
 
         noisy_normalized = noisy / norm_factor
-        clean_normalized = clean / norm_factor  # clean信号也用同样的因子归一化
 
-        # 增加一个通道维度
-        noisy_normalized = noisy_normalized[np.newaxis, :]
-        clean_normalized = clean_normalized[np.newaxis, :]
-
-        return noisy_normalized, clean_normalized, norm_factor
+        # ⚠️ 注意：clean信号不归一化，保持原始值（与ASNet一致）
+        # ⚠️ 注意：不添加通道维度（与ASNet一致）
+        
+        return noisy_normalized, clean, norm_factor
 
 
 def get_data(data_path, batch_size):
@@ -88,7 +94,9 @@ def get_data(data_path, batch_size):
         shuffle=False
     )
     
-    return train_loader, verify_loader, test_loader
+    # 返回数据加载器和时间点数量
+    input_length = train_input.shape[1]
+    return train_loader, verify_loader, test_loader, input_length
 
 
 def train_epoch(I_model, M_model, device, train_loader, optimizer_I, optimizer_M, criterion, epoch, epochs):
@@ -106,27 +114,34 @@ def train_epoch(I_model, M_model, device, train_loader, optimizer_I, optimizer_M
     for batch_idx, (x, y, norm_factors) in enumerate(train_loader):
         train_step_num += 1
         
-        # 数据移到设备
+        # 数据移到设备 (与ASNet一致)
         x = x.float().to(device)
         y = y.float().to(device)
-        norm_factors = norm_factors.float().to(device).view(-1, 1, 1)
+        norm_factors = norm_factors.float().to(device).view(-1, 1)
         
-        # 计算噪声信号 (contaminated - clean = noise)
-        z = x.squeeze() - y.squeeze()
-        z = z.detach()
+        # 添加通道维度用于EEGIFNet (batch, 1, time)
+        x_with_channel = x.unsqueeze(1)
 
         optimizer_I.zero_grad()
         optimizer_M.zero_grad()
 
-        # INet预测clean EEG和noise
-        e_outputs, n_outputs = I_model(x)
+        # INet预测clean EEG和noise (输出形状: batch, time)
+        e_outputs, n_outputs = I_model(x_with_channel)
         # MNet融合预测
-        outputs = M_model(x, e_outputs, n_outputs)
+        outputs = M_model(x_with_channel, e_outputs, n_outputs)
 
-        # 计算loss (在归一化空间中)
-        loss_e = criterion(e_outputs, y.squeeze())
-        loss_n = criterion(n_outputs, z)
-        loss_all = criterion(outputs, y.squeeze())
+        # ⚠️ 关键：恢复到原始尺度后计算loss（与ASNet一致）
+        e_outputs_restored = e_outputs * norm_factors
+        n_outputs_restored = n_outputs * norm_factors
+        outputs_restored = outputs * norm_factors
+        
+        # 计算噪声目标 (原始尺度)
+        z = x - y
+        
+        # 在原始尺度计算loss
+        loss_e = criterion(e_outputs_restored, y)
+        loss_n = criterion(n_outputs_restored, z)
+        loss_all = criterion(outputs_restored, y)
 
         total_train_loss_e_per_epoch += loss_e.item()
         total_train_loss_n_per_epoch += loss_n.item()
@@ -153,7 +168,7 @@ def train_epoch(I_model, M_model, device, train_loader, optimizer_I, optimizer_M
 def validate_epoch(I_model, M_model, device, val_loader, criterion, epoch, epochs):
     """
     验证一个epoch - 保持EEGIFNet原有的验证逻辑
-    同时计算反归一化后的指标
+    同时计算反归一化后的指标和统一评价指标
     """
     I_model.eval()
     M_model.eval()
@@ -168,6 +183,10 @@ def validate_epoch(I_model, M_model, device, val_loader, criterion, epoch, epoch
     # 反归一化后的指标
     sum_acc_denorm, sum_rrmse_denorm = 0, 0
     sum_snr = 0
+    
+    # 收集所有预测和真实值用于统一评价指标计算
+    all_predictions = []
+    all_targets = []
 
     with torch.no_grad():
         for batch_idx, (x, y, norm_factors) in enumerate(val_loader):
@@ -175,48 +194,56 @@ def validate_epoch(I_model, M_model, device, val_loader, criterion, epoch, epoch
 
             x = x.float().to(device)
             y = y.float().to(device)
-            norm_factors = norm_factors.float().to(device).view(-1, 1, 1)
+            norm_factors = norm_factors.float().to(device).view(-1, 1)
 
-            # 计算噪声
-            z = x.squeeze() - y.squeeze()
+            # 添加通道维度
+            x_with_channel = x.unsqueeze(1)
+            
+            # 计算噪声目标 (原始尺度)
+            z = x - y
 
             # 模型预测
-            e_outputs, n_outputs = I_model(x)
-            outputs = M_model(x, e_outputs, n_outputs)
+            e_outputs, n_outputs = I_model(x_with_channel)
+            outputs = M_model(x_with_channel, e_outputs, n_outputs)
 
-            # 归一化空间的loss和指标
-            loss = criterion(outputs, y.squeeze())
+            # ⚠️ 恢复到原始尺度（与ASNet一致）
+            outputs_restored = outputs * norm_factors
+            
+            # 在原始尺度计算loss
+            loss = criterion(outputs_restored, y)
             total_val_loss += loss.item()
 
-            # 归一化空间的指标
-            acc_e = cal_ACC_tensor(e_outputs.detach(), y.squeeze().detach())
+            # 在原始尺度计算指标（与ASNet一致）
+            e_outputs_restored = e_outputs * norm_factors
+            n_outputs_restored = n_outputs * norm_factors
+            
+            acc_e = cal_ACC_tensor(e_outputs_restored.detach(), y.detach())
             sum_acc_e += acc_e
-            rrmse_e = cal_RRMSE_tensor(e_outputs.detach(), y.squeeze().detach())
+            rrmse_e = cal_RRMSE_tensor(e_outputs_restored.detach(), y.detach())
             sum_rrmse_e += rrmse_e
 
-            acc_n = cal_ACC_tensor(n_outputs.detach(), z.detach())
+            acc_n = cal_ACC_tensor(n_outputs_restored.detach(), z.detach())
             sum_acc_n += acc_n
-            rrmse_n = cal_RRMSE_tensor(n_outputs.detach(), z.detach())
+            rrmse_n = cal_RRMSE_tensor(n_outputs_restored.detach(), z.detach())
             sum_rrmse_n += rrmse_n
 
-            acc = cal_ACC_tensor(outputs.detach(), y.squeeze().detach())
+            acc = cal_ACC_tensor(outputs_restored.detach(), y.detach())
             sum_acc += acc
-            rrmse = cal_RRMSE_tensor(outputs.detach(), y.squeeze().detach())
+            rrmse = cal_RRMSE_tensor(outputs_restored.detach(), y.detach())
             sum_rrmse += rrmse
 
-            # 反归一化后的指标
-            # norm_factors: (batch, 1, 1), outputs: (batch, time)
-            norm_factors_2d = norm_factors.squeeze(-1)  # (batch, 1)
-            outputs_denorm = outputs * norm_factors_2d
-            y_denorm = y.squeeze() * norm_factors_2d
-            
-            acc_denorm = cal_ACC_tensor(outputs_denorm.detach(), y_denorm.detach())
+            # 最终指标（已经在原始尺度）
+            acc_denorm = acc
             sum_acc_denorm += acc_denorm
-            rrmse_denorm = cal_RRMSE_tensor(outputs_denorm.detach(), y_denorm.detach())
+            rrmse_denorm = rrmse
             sum_rrmse_denorm += rrmse_denorm
             
-            snr = cal_SNR(outputs_denorm, y_denorm)
+            snr = cal_SNR(outputs_restored, y)
             sum_snr += snr
+            
+            # 收集数据用于统一评价指标计算
+            all_predictions.append(outputs_restored.cpu().numpy())
+            all_targets.append(y.cpu().numpy())
 
     # 计算平均值
     average_val_loss = total_val_loss / val_step_num
@@ -231,12 +258,20 @@ def validate_epoch(I_model, M_model, device, val_loader, criterion, epoch, epoch
     acc_denorm = sum_acc_denorm.item() / val_step_num
     rrmse_denorm = sum_rrmse_denorm.item() / val_step_num
     snr_avg = sum_snr / val_step_num
+    
+    # 计算统一评价指标
+    all_predictions = np.concatenate(all_predictions, axis=0)
+    all_targets = np.concatenate(all_targets, axis=0)
+    unified_metrics = compute_all_metrics(all_predictions, all_targets, fs=200)
 
     print(f"Epoch [{epoch+1}/{epochs}] Val - Loss: {average_val_loss:.6f}")
     print(f"  [Normalized] ACC_e: {acc_e:.4f}, RRMSE_e: {rrmse_e:.4f}")
     print(f"  [Normalized] ACC_n: {acc_n:.4f}, RRMSE_n: {rrmse_n:.4f}")
     print(f"  [Normalized] ACC: {acc:.4f}, RRMSE: {rrmse:.4f}")
     print(f"  [Denormalized] ACC: {acc_denorm:.4f}, RRMSE: {rrmse_denorm:.4f}, SNR: {snr_avg:.2f} dB")
+    
+    # 打印统一评价指标
+    print_metrics(unified_metrics, prefix="验证集统一指标")
 
     return average_val_loss, acc_denorm, rrmse_denorm
 
@@ -268,11 +303,7 @@ def main():
 
     # 加载数据
     print("加载数据集...")
-    train_loader, val_loader, test_loader = get_data(args.data_path, args.batch_size)
-    
-    # 获取数据的时间点数量
-    sample_data = np.load(os.path.join(args.data_path, 'Contaminated.npy'), allow_pickle=True)
-    input_length = sample_data.shape[1]
+    train_loader, val_loader, test_loader, input_length = get_data(args.data_path, args.batch_size)
     print(f"数据时间点: {input_length}")
 
     # 初始化模型 - 使用EEGIFNet的MA_INet和MA_MNet (适配input_length)

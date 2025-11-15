@@ -104,38 +104,54 @@ else
 end
 
 % 3) Optional auto-tune (choose bandwidth/fmax maximizing first-mode energy)
+% 调优在归一化域进行以保持数值稳定性
 fmaxUse = opts.fmaxOA; bwUse = opts.bandwidthHz;
 if opts.autoTune
     [bwUse, fmaxUse] = acmd_autotune(x_norm, fs, opts.tuneBW, opts.tuneFmax, ...
                                      opts.winSec, opts.ridgeSmooth);
 end
 
-% 4) ACMD approximation + iterative subtraction
-x_work = x_norm;
+% 4) ACMD approximation - 关键修改：在原始幅度域提取第一模态
+%    这样第一模态保留了眼电的真实幅度，使得后续减法有效
+x_work_orig = u;  % 原始幅度域（去基线）
+x_work_norm = x_norm;  % 归一化域
 psiAll = [];
 modes  = {};
 fi = []; phi = []; mode1 = [];
-for r = 1:max(1, opts.refineRounds)
-    [m1, fi, phi] = acmd_extract_first_mode(x_work, fs, ...
-        'fmaxOA', fmaxUse, 'winSec', opts.winSec, ...
-        'ridgeSmooth', opts.ridgeSmooth, 'bandwidthHz', bwUse);
-    psi_r = peak_count(m1);
-    psiAll(end+1) = psi_r; %#ok<AGROW>
-    modes{end+1}  = m1; %#ok<AGROW>
-    if ~isempty(opts.threshold) && (psi_r < opts.threshold)
-        x_work = x_work - m1; % subtract and continue
-    else
-        break; % stop if not detected
-    end
-end
-mode1 = modes{1};
-z_norm = x_work;
 
-% Optionally restore amplitude to match input scale
-if opts.restoreAmplitude
-    z = z_norm * mx;
+% 先在归一化域提取获得IF轨迹（数值稳定）
+[m1_norm, fi, phi] = acmd_extract_first_mode(x_work_norm, fs, ...
+    'fmaxOA', fmaxUse, 'winSec', opts.winSec, ...
+    'ridgeSmooth', opts.ridgeSmooth, 'bandwidthHz', bwUse);
+
+% 再用同样的IF轨迹在原始幅度域提取（保留能量）
+% 直接对原始幅度信号用同样参数提取
+[m1_orig, ~, ~] = acmd_extract_first_mode(x_work_orig, fs, ...
+    'fmaxOA', fmaxUse, 'winSec', opts.winSec, ...
+    'ridgeSmooth', opts.ridgeSmooth, 'bandwidthHz', bwUse);
+
+% 峰计数在归一化模态上计算（形状特征，与幅度无关）
+psi_val = peak_count(m1_norm);
+psiAll(end+1) = psi_val;
+modes{end+1}  = m1_orig;  % 保存原始幅度的模态
+mode1 = m1_orig;
+
+% Detection and reconstruction (Eq. 12, Algorithm 2)
+% 论文逻辑: Ψ_p < ξ 表示峰少 → 有眼电(慢波) → 执行减法
+if ~isempty(opts.threshold)
+    if psi_val < opts.threshold
+        % OA detected: subtract first mode (原始幅度域)
+        z = x_work_orig - m1_orig;
+        detected = true;
+    else
+        % No OA: keep original
+        z = x_work_orig;
+        detected = false;
+    end
 else
-    z = z_norm;
+    % No threshold provided: keep original
+    z = x_work_orig;
+    detected = false;
 end
 
 % info pack
@@ -143,15 +159,15 @@ info = struct();
 if opts.returnAll
     info.baseline  = baseline;
     info.x_norm    = x_norm;
-    info.mode1     = mode1;
+    info.mode1     = mode1;      % 原始幅度的第一模态
+    info.mode1_norm= m1_norm;    % 归一化的第一模态（用于可视化）
     info.fi        = fi;
     info.phi       = phi;
-    info.z_unorm   = z_norm * mx; % convenience: output at original scale
     info.psiAll    = psiAll;
     info.modes     = modes;
 end
 info.psi       = psiAll(1);
-info.detected  = ~isempty(opts.threshold) && (psiAll(1) < opts.threshold);
+info.detected  = detected;
 info.threshold = opts.threshold;
 info.normScale = mx;
 info.params    = opts;

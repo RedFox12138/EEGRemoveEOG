@@ -46,24 +46,26 @@ def test_model(I_model, M_model, device, test_loader):
 
             x = x.float().to(device)
             y = y.float().to(device)
-            norm_factors = norm_factors.float().to(device).view(-1, 1, 1)
+            norm_factors = norm_factors.float().to(device).view(-1, 1)  # ✅ (batch, 1) 与ASNet一致
 
-            # 计算噪声
-            z = x.squeeze() - y.squeeze()
+            # ⚠️ EEGIFNet需要通道维度
+            x_with_channel = x.unsqueeze(1)  # (batch, time) -> (batch, 1, time)
 
-            # 模型预测
-            e_outputs, n_outputs = I_model(x)
-            outputs = M_model(x, e_outputs, n_outputs)
+            # 计算噪声目标
+            z = x - y
 
-            # 反归一化
-            # norm_factors: (batch, 1, 1), outputs: (batch, time)
-            norm_factors_2d = norm_factors.squeeze(-1)  # (batch, 1)
-            outputs_denorm = outputs * norm_factors_2d
-            y_denorm = y.squeeze() * norm_factors_2d
-            x_denorm = x.squeeze() * norm_factors_2d
-            e_outputs_denorm = e_outputs * norm_factors_2d
-            n_outputs_denorm = n_outputs * norm_factors_2d
-            z_denorm = z * norm_factors_2d
+            # 模型预测 (输出: batch, time)
+            e_outputs, n_outputs = I_model(x_with_channel)
+            outputs = M_model(x_with_channel, e_outputs, n_outputs)
+
+            # ⚠️ 反归一化到原始尺度（与ASNet一致）
+            outputs_denorm = outputs * norm_factors
+            e_outputs_denorm = e_outputs * norm_factors
+            n_outputs_denorm = n_outputs * norm_factors
+            
+            # y和z已经是原始尺度
+            y_denorm = y
+            z_denorm = z
             
             # 收集预测结果
             all_predictions.append(outputs_denorm.cpu().numpy())
@@ -243,12 +245,7 @@ def main():
 
     # 加载数据
     print("加载数据集...")
-    _, _, test_loader = get_data(args.data_path, args.batch_size)
-    
-    # 获取数据的时间点数量
-    import scipy.io
-    sample_data = scipy.io.loadmat(os.path.join(args.data_path, 'Test_Contaminated.mat'))['data']
-    input_length = sample_data.shape[1]
+    _, _, test_loader, input_length = get_data(args.data_path, args.batch_size)
     print(f"数据时间点: {input_length}")
 
     # 初始化模型 (适配input_length)

@@ -370,7 +370,9 @@ def main():
         'VME_EFD',
         'Threshold',
         'ASNet',
-        'EEGIFNet'
+        'EEGIFNet',
+        'DAT-Net',
+        'MicroWaveNet'
     ]
     
     # 1. 加载测试集真实数据

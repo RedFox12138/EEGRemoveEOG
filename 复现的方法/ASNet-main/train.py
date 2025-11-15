@@ -9,6 +9,7 @@ from time import time
 from torch.utils.data import Dataset
 import sys
 
+from 复现的方法.metrics_utils import compute_all_metrics, print_metrics
 
 sys.path.append(r'D:\Pycharm_Projects\EOG Remove\复现的方法')
 
@@ -110,10 +111,6 @@ def train(model, device, train_loader, optimizer):
     return avg_loss, time_per_sample
 
 
-def calculate_mean_std_metrics(param, param1, fs):
-    pass
-
-
 def verify(model, device, verify_loader):
     """验证函数,计算验证集上的MSE损失和所有评价指标"""
     model.eval()
@@ -145,12 +142,8 @@ def verify(model, device, verify_loader):
     all_predictions = np.concatenate(all_predictions, axis=0)
     all_targets = np.concatenate(all_targets, axis=0)
     
-    # 计算评价指标
-    metrics = calculate_mean_std_metrics(
-        [all_targets[i] for i in range(len(all_targets))],
-        [all_predictions[i] for i in range(len(all_predictions))],
-        fs=200
-    )
+    # 使用统一的评价指标计算
+    metrics = compute_all_metrics(all_predictions, all_targets, fs=200)
     
     avg_loss = loss_epoch / step_num
     return avg_loss, metrics
@@ -169,7 +162,7 @@ model.to(device)
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # 训练配置
-NUM_EPOCHS = 50
+NUM_EPOCHS = 100
 best_cc = -1.0  # 使用CC作为最佳模型选择标准(越大越好)
 best_model_path = f'{model_name}_best.pkl'
 
@@ -194,13 +187,12 @@ for epoch in range(NUM_EPOCHS):
     # 验证
     val_loss, val_metrics = verify(model, device, verify_loader)
     print(f"Val Loss: {val_loss:.6f}")
-    print(f"Val Metrics - RRMSE: {val_metrics['RRMSE']['mean']:.4f}±{val_metrics['RRMSE']['std']:.4f}, "
-          f"CC: {val_metrics['CC']['mean']:.4f}±{val_metrics['CC']['std']:.4f}, "
-          f"RRMSE_PSD: {val_metrics['RRMSE_PSD']['mean']:.4f}±{val_metrics['RRMSE_PSD']['std']:.4f}, "
-          f"MI: {val_metrics['MI']['mean']:.4f}±{val_metrics['MI']['std']:.4f}")
+    
+    # 打印验证集评价指标
+    print_metrics(val_metrics, prefix="验证集")
     
     # 保存最佳模型(基于CC指标)
-    current_cc = val_metrics['CC']['mean']
+    current_cc = val_metrics['CC']
     if current_cc > best_cc:
         best_cc = current_cc
         torch.save(model.state_dict(), best_model_path)

@@ -12,16 +12,20 @@ def find_intervals(binary_array):
     return starts, ends
 
 
-def eog_removal_corrected(eeg, fs=250, visualize=False):
+def eog_removal_corrected(eeg, fs=250, visualize=False, removal_strength=0.85):
     """
-    单通道脑电信号眼电去除函数 - 严格按照文献实现
-    
+    单通道脑电信号眼电去除函数 - 平衡版
+
     参考文献: 《单通道脑电信号中眼电干扰的自动分离方法》
-    
+
     参数：
         eeg : 输入脑电信号（1D数组）
         fs : 采样率（默认250Hz）
         visualize : 是否显示处理过程（默认False）
+        removal_strength : 眼电去除强度 (0.0-1.0)，默认0.85
+                          0.7-0.8: 温和去除，保留更多脑电
+                          0.85-0.9: 平衡点，推荐使用
+                          0.9-1.0: 强力去除，更彻底但可能损失脑电
     返回：
         clean_eeg : 去除眼电后的脑电信号
     """
@@ -42,7 +46,7 @@ def eog_removal_corrected(eeg, fs=250, visualize=False):
     N = 21
     cutoff = 4 / (fs / M / 2)  # 归一化截止频率
     h = firwin(N, cutoff, window='hamming')
-    
+
     # 使用零相位滤波
     filtered = filtfilt(h, [1.0], downsampled)
 
@@ -54,15 +58,16 @@ def eog_removal_corrected(eeg, fs=250, visualize=False):
     # 文献: 使用中位数绝对偏差(MAD)计算阈值
     env_med = np.median(envelope)
     env_mad = np.median(np.abs(envelope - env_med))
-    
+
     # 标准化MAD
     sigma = env_mad / 0.6745 if env_mad > 0 else np.std(envelope)
-    
-    # 文献中的阈值设置
-    Th = env_med + 3.0 * sigma  # 高阈值
-    Tl = env_med + 0.5 * sigma  # 低阈值
-    
+
+    # 文献中的阈值设置（平衡调整）
+    Th = env_med + 2.8 * sigma  # 高阈值（平衡点：2.8）
+    Tl = env_med + 0.6 * sigma  # 低阈值（平衡点：0.6）
+
     print(f"[阈值检测] 中位数:{env_med:.4f}, σ:{sigma:.4f}, Th:{Th:.4f}, Tl:{Tl:.4f}")
+    print(f"[去除强度] {removal_strength:.1%} (推荐: 0.85 平衡点)")
 
     # ⚠️ 修正1: 使用高阈值Th进行初检,而不是固定值1
     thresholded = envelope > Th  # ✅ 修正
@@ -75,12 +80,12 @@ def eog_removal_corrected(eeg, fs=250, visualize=False):
         new_s = s
         while new_s > 0 and envelope[new_s] > Tl:
             new_s -= 1
-        
+
         # 向后扩展
         new_e = e
         while new_e < len(envelope) - 1 and envelope[new_e] > Tl:
             new_e += 1
-        
+
         # 文献: 去除持续时间短于50ms的区间
         if (new_e - new_s) > int(0.05 * fs):
             valid_intervals.append((new_s, new_e))
@@ -104,9 +109,9 @@ def eog_removal_corrected(eeg, fs=250, visualize=False):
     final_intervals = merge_intervals(valid_intervals, max_gap=int(0.2 * fs))
     print(f"[区间检测] 检测到 {len(final_intervals)} 个眼电伪迹区间")
 
-    # ===== 第4步：小波变换眼电分离 =====
+    # ===== 第4步：小波变换眼电分离（平衡版）=====
     wavelet = 'sym5'  # 文献使用sym5小波
-    desired_level = 8  # 文献: 8层分解
+    desired_level = 7  # 7层分解（平衡点：既不过度也不欠缺）
     clean_eeg = eeg.copy()
 
     w = pywt.Wavelet(wavelet)
@@ -119,63 +124,95 @@ def eog_removal_corrected(eeg, fs=250, visualize=False):
         e_ext = min(len(eeg), e + overlap)
 
         segment = eeg[s_ext:e_ext]
-        N_segment = len(segment)  # ⚠️ 修正2: 保存原始长度用于n计算
+        N_segment = len(segment)
 
         # 计算最大分解层数
         max_level = pywt.dwt_max_level(N_segment, w.dec_len)
         if max_level < 1:
-            print(f"[警告] 区间{idx+1}太短,跳过处理")
+            print(f"[警告] 区间{idx + 1}太短,跳过处理")
             continue
-        
+
         level = min(desired_level, max_level)
 
         # 小波分解
         coeffs = pywt.wavedec(segment, w, level=level)
 
-        # ⚠️ 文献核心算法:
-        # 1. 保留近似系数cA (coeffs[0])
-        # 2. 对每层细节系数cDj应用硬阈值,去除背景脑电成分
-        # 3. 重构后得到眼电伪迹估计
-        new_coeffs = [coeffs[0]]  # 保留近似系数
+        # ⚠️ 平衡策略：既要有效去除眼电，又要保留脑电
+        # 1. 近似系数适度限制（不要过度压制）
+        # 2. 细节系数使用混合阈值策略
         
+        # 对近似系数进行适度限制
+        approx_coeff = coeffs[0].copy()
+        approx_threshold = np.percentile(np.abs(approx_coeff), 85)  # 限制最高15%（之前是10%）
+        approx_coeff = np.clip(approx_coeff, -approx_threshold * 2.0, approx_threshold * 2.0)  # 放宽到2.0倍
+        
+        new_coeffs = [approx_coeff]
+
         for j in range(1, len(coeffs)):
-            # 文献公式(4): α = 2.5 (j<3), α = 2.0 (j≥3)
-            alpha = 2.5 if j < 3 else 2.0
+            # 平衡的alpha参数
+            alpha = 2.2 if j < 3 else 1.8  # 介于保守和激进之间
             
-            # ⚠️ 修正3: 文献公式(3) - n应该用原始信号长度N,不是当前层长度
-            n = int(N_segment / (level + 2 - j) ** alpha)
+            # 平衡的保留比例：低频层保留少一些（眼电多），高频层保留多一些（脑电多）
+            n_keep_ratio = 0.5 if j < 3 else 0.7  # 50%-70%
+            n = int(len(coeffs[j]) * n_keep_ratio)
             n = max(0, min(n, len(coeffs[j]) - 1))
 
-            # 计算通用阈值 (文献公式5)
+            # 计算阈值
             coeff_abs = np.abs(coeffs[j])
             sigma_j = np.median(coeff_abs) / 0.6745 if np.any(coeff_abs != 0) else 0.0
-            universal_thr = sigma_j * np.sqrt(2 * np.log(max(len(coeff_abs), 2)))
-
-            # 计算BM阈值 (Birgé-Massart阈值,文献公式3)
+            
+            # 平衡的universal阈值（不要太低）
+            universal_thr = sigma_j * np.sqrt(2 * np.log(max(len(coeff_abs), 2))) * 0.9
+            
+            # BM阈值
             sorted_coeff = np.sort(coeff_abs)[::-1]
             bm_thr = sorted_coeff[n] if n < len(sorted_coeff) else 0.0
             
-            # 取两者最小值
-            thr = min(bm_thr, universal_thr)
-
-            # 硬阈值处理
-            new_c = pywt.threshold(coeffs[j], value=thr, mode='hard') if sigma_j > 0 else coeffs[j]
-            new_coeffs.append(new_c)
+            # 取两者最小值，并适度调整
+            thr = min(bm_thr, universal_thr) * 0.85  # 降低15%（之前是30%）
             
-            print(f"  区间{idx+1} 层{j}: n={n}, σ={sigma_j:.4f}, BM_thr={bm_thr:.4f}, U_thr={universal_thr:.4f}, 采用={thr:.4f}")
+            # 混合阈值策略：低频层用软阈值，高频层用硬阈值
+            if j < 3:
+                # 低频层（主要是眼电）：软阈值，平滑去除
+                new_c = pywt.threshold(coeffs[j], value=thr, mode='soft') if sigma_j > 0 else coeffs[j]
+            else:
+                # 高频层（主要是脑电）：硬阈值，保留更多
+                new_c = pywt.threshold(coeffs[j], value=thr, mode='hard') if sigma_j > 0 else coeffs[j]
+            
+            new_coeffs.append(new_c)
+
+            print(f"  区间{idx + 1} 层{j}: 保留{n_keep_ratio:.0%}, σ={sigma_j:.4f}, 阈值={thr:.4f}, 模式={'软' if j<3 else '硬'}")
 
         # 重构得到眼电伪迹估计
-        # 文献逻辑: 硬阈值后保留的是眼电成分(低频),去除的是脑电高频成分
         eog_estimate = pywt.waverec(new_coeffs, w)
-        
+
         # 长度对齐
         if len(eog_estimate) > len(segment):
             eog_estimate = eog_estimate[:len(segment)]
         elif len(eog_estimate) < len(segment):
             eog_estimate = np.pad(eog_estimate, (0, len(segment) - len(eog_estimate)), mode='edge')
 
-        # 文献公式(1): 净化信号 = 原信号 - 眼电估计
-        clean_segment = segment - eog_estimate
+        # ⚠️ 平衡策略：使用可调节的去除强度
+        # 净化信号 = 原信号 - α * 眼电估计
+        clean_segment = segment - removal_strength * eog_estimate
+        
+        # 自适应调节（更精细的控制）
+        eog_power = np.std(eog_estimate)
+        signal_power = np.std(segment)
+        power_ratio = eog_power / signal_power if signal_power > 0 else 0
+        
+        if power_ratio > 0.6:  # 眼电功率过大（>60%）
+            # 适度降低去除强度，避免过度去除
+            adaptive_strength = removal_strength * 0.85
+            clean_segment = segment - adaptive_strength * eog_estimate
+            print(f"  区间{idx + 1}: 眼电功率比{power_ratio:.1%}过高，降低强度至{adaptive_strength:.1%}")
+        elif power_ratio < 0.3:  # 眼电功率较小（<30%）
+            # 可能检测到假阳性，进一步降低去除强度
+            adaptive_strength = removal_strength * 0.7
+            clean_segment = segment - adaptive_strength * eog_estimate
+            print(f"  区间{idx + 1}: 眼电功率比{power_ratio:.1%}较低，降低强度至{adaptive_strength:.1%}")
+        else:
+            print(f"  区间{idx + 1}: 眼电功率比{power_ratio:.1%}正常，使用标准强度{removal_strength:.1%}")
 
         # 应用过渡窗以平滑边界
         transition = min(100, overlap)
@@ -230,11 +267,11 @@ def eog_removal_corrected(eeg, fs=250, visualize=False):
         plt.plot(envelope, label='Envelope', linewidth=1, color='purple')
         plt.axhline(Th, color='r', linestyle='--', linewidth=2, label=f'High Threshold (Th={Th:.2f})')
         plt.axhline(Tl, color='g', linestyle='--', linewidth=2, label=f'Low Threshold (Tl={Tl:.2f})')
-        
+
         # 标注检测区间
         for idx, (s, e) in enumerate(final_intervals):
             plt.axvspan(s, e, alpha=0.3, color='red', label='EOG Artifact' if idx == 0 else '')
-        
+
         plt.title('Step 4: Dual-Threshold EOG Detection', fontsize=14, pad=15)
         plt.ylabel('Envelope')
         plt.legend(loc='upper right')
@@ -244,11 +281,11 @@ def eog_removal_corrected(eeg, fs=250, visualize=False):
         plt.subplot(5, 1, 5)
         plt.plot(eeg, label='Original EEG', alpha=0.6, linewidth=1)
         plt.plot(clean_eeg, label='Cleaned EEG', linewidth=1.5, color='green')
-        
+
         # 标注处理区间
         for s, e in final_intervals:
             plt.axvspan(s, e, alpha=0.2, color='yellow')
-        
+
         plt.title('Step 5: Final Result (Original vs Cleaned)', fontsize=14, pad=15)
         plt.xlabel('Samples')
         plt.ylabel('Amplitude (μV)')
@@ -265,41 +302,41 @@ def eog_removal_corrected(eeg, fs=250, visualize=False):
 def compare_implementations(eeg, fs=250):
     """对比原实现和修正后的实现"""
     from SingleDenoise import eog_removal
-    
-    print("="*60)
+
+    print("=" * 60)
     print("对比原实现 vs 修正实现")
-    print("="*60)
-    
+    print("=" * 60)
+
     print("\n[原实现]")
     result_old = eog_removal(eeg, fs, visualize=False)
-    
+
     print("\n[修正实现]")
     result_new = eog_removal_corrected(eeg, fs, visualize=False)
-    
+
     # 计算差异
     diff = np.abs(result_old - result_new)
     print(f"\n[差异统计]")
     print(f"  最大差异: {np.max(diff):.4f}")
     print(f"  平均差异: {np.mean(diff):.4f}")
     print(f"  差异标准差: {np.std(diff):.4f}")
-    
+
     # 可视化对比
     plt.figure(figsize=(15, 8))
-    
+
     plt.subplot(3, 1, 1)
     plt.plot(eeg, label='Original', alpha=0.7)
     plt.plot(result_old, label='Old Implementation', alpha=0.7)
     plt.title('Original Implementation')
     plt.legend()
     plt.grid(alpha=0.3)
-    
+
     plt.subplot(3, 1, 2)
     plt.plot(eeg, label='Original', alpha=0.7)
     plt.plot(result_new, label='Corrected Implementation', alpha=0.7)
     plt.title('Corrected Implementation')
     plt.legend()
     plt.grid(alpha=0.3)
-    
+
     plt.subplot(3, 1, 3)
     plt.plot(diff, label='Absolute Difference', color='red')
     plt.title('Difference between Two Implementations')
@@ -307,10 +344,10 @@ def compare_implementations(eeg, fs=250):
     plt.ylabel('Amplitude')
     plt.legend()
     plt.grid(alpha=0.3)
-    
+
     plt.tight_layout()
     plt.show()
-    
+
     return result_old, result_new
 
 
@@ -318,22 +355,28 @@ if __name__ == '__main__':
     # 测试代码
     print("单通道眼电去除算法 - 文献修正版")
     print("加载测试数据...")
-    
+
     # 你可以用自己的数据替换
     # eeg = np.load('your_eeg_data.npy')
-    
+
     # 或者生成模拟数据
     fs = 250
-    t = np.arange(0, 10, 1/fs)
-    eeg = np.sin(2*np.pi*10*t) + 0.5*np.random.randn(len(t))
-    
+    t = np.arange(0, 10, 1 / fs)
+    eeg = np.sin(2 * np.pi * 10 * t) + 0.5 * np.random.randn(len(t))
+
     # 添加模拟眼电伪迹
-    eeg[500:700] += 5 * np.sin(2*np.pi*2*t[500:700])
-    
-    print(f"信号长度: {len(eeg)} 采样点 ({len(eeg)/fs:.1f}秒)")
+    eeg[500:700] += 5 * np.sin(2 * np.pi * 2 * t[500:700])
+
+    print(f"信号长度: {len(eeg)} 采样点 ({len(eeg) / fs:.1f}秒)")
     print(f"采样率: {fs} Hz")
+
+    # 运行修正算法（默认使用0.85的平衡点）
+    clean_eeg = eog_removal_corrected(eeg, fs, visualize=True, removal_strength=0.85)
     
-    # 运行修正算法
-    clean_eeg = eog_removal_corrected(eeg, fs, visualize=True)
-    
+    print("\n参数调节指南：")
+    print("- 当前使用: removal_strength=0.85 (推荐平衡点)")
+    print("- 眼电去除不够 → 增加到 0.90-0.95")
+    print("- 有效信号损失 → 降低到 0.75-0.80")
+    print("- 使用方法: eog_removal_corrected(eeg, fs, removal_strength=0.85)")
+
     print("\n处理完成!")
