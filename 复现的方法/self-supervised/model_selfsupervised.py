@@ -1,3 +1,8 @@
+"""
+Self-Supervised EEG Denoising Model
+复制自 Self-Supervised-EEG-Denoising-main/model.py
+用于半模拟数据集
+"""
 import torch
 from torch import nn
 from einops import rearrange
@@ -28,7 +33,6 @@ class LinearAttention(nn.Module):
         self.to_q = nn.Conv1d(dim, hidden_dim, kernel_size=5, padding=5 // 2)
         self.to_k = nn.Conv1d(dim, hidden_dim, kernel_size=3, padding=3 // 2)
         self.to_v = nn.Conv1d(dim, hidden_dim, kernel_size=1, padding=0)
-
 
         self.to_out = nn.Conv1d(hidden_dim, dim, 1)
 
@@ -137,7 +141,6 @@ class DenoiseEEG(nn.Module):
         self.up2 = UnetUp(2 * n_feat, n_feat)
         self.trans4 = TransformerBlock(n_feat, length)
 
-
         self.out = nn.Sequential(
             nn.AdaptiveAvgPool2d((in_channels, None)),
             nn.Linear(length, length),
@@ -160,3 +163,7 @@ class DenoiseEEG(nn.Module):
 
         out = self.out(torch.cat((up1, x), 1))
         return out
+    
+    def count_parameters(self):
+        """统计模型参数量"""
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)

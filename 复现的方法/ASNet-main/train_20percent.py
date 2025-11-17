@@ -1,3 +1,12 @@
+"""
+ASNet 20%数据训练脚本
+使用20%训练数据进行有监督训练，用于公平比较
+
+训练流程:
+1. 使用20%的训练数据(带clean标签)进行有监督训练
+2. 使用MSE损失
+3. 保存最佳模型（基于验证损失）
+"""
 import scipy
 import torch
 import torch.optim as optim
@@ -15,6 +24,7 @@ sys.path.append(r'D:\Pycharm_Projects\EOG Remove\复现的方法')
 
 BATCH_SIZE = 200
 
+
 class EEGDataset(Dataset):
     def __init__(self, noisy_signals, clean_signals, is_train=False):
         self.noisy_signals = noisy_signals
@@ -29,34 +39,37 @@ class EEGDataset(Dataset):
         clean = self.clean_signals[idx]
 
         # 归一化 noisy 信号
-        # 找到绝对值的最大值作为归一化因子
         norm_factor = np.max(np.abs(noisy))
         if norm_factor == 0:
-            norm_factor = 1.0 # 避免除以零
+            norm_factor = 1.0
 
         noisy_normalized = noisy / norm_factor
 
-        # 不需要在这里添加通道维度，ASNet的forward会自动处理
-        # noisy_normalized = noisy_normalized[np.newaxis, :]
-        # clean = clean[np.newaxis, :]
-
         return noisy_normalized, clean, norm_factor
 
+
 def get_data():
-    # 加载已经分割好的数据集（80% 训练, 10% 验证, 10% 测试）
+    """加载20%训练数据和验证数据"""
     data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
     
-    train_input = scipy.io.loadmat(f'{data_dir}/Train_Contaminated.mat')['data']
-    verify_input = scipy.io.loadmat(f'{data_dir}/Val_Contaminated.mat')['data']
-    test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
+    # 加载完整训练集
+    full_train_input = scipy.io.loadmat(f'{data_dir}/Train_Contaminated.mat')['data']
+    full_train_output = scipy.io.loadmat(f'{data_dir}/Train_Pure.mat')['data']
     
-    train_output = scipy.io.loadmat(f'{data_dir}/Train_Pure.mat')['data']
+    # 取前20%数据
+    num_samples = int(len(full_train_input) * 0.2)
+    train_input = full_train_input[:num_samples]
+    train_output = full_train_output[:num_samples]
+    
+    # 验证集
+    verify_input = scipy.io.loadmat(f'{data_dir}/Val_Contaminated.mat')['data']
     verify_output = scipy.io.loadmat(f'{data_dir}/Val_Pure.mat')['data']
-    test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
+
+    print(f'训练数据（20%）: {train_input.shape}')
+    print(f'验证数据: {verify_input.shape}')
 
     train_dataset = EEGDataset(train_input, train_output, is_train=True)
     verify_dataset = EEGDataset(verify_input, verify_output, is_train=False)
-    test_dataset = EEGDataset(test_input, test_output, is_train=False)
 
     train_loader = Data.DataLoader(
         dataset=train_dataset,
@@ -69,13 +82,8 @@ def get_data():
         batch_size=BATCH_SIZE,
         shuffle=False
     )
-
-    test_loader = Data.DataLoader(
-        dataset=test_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False
-    )
-    return train_loader, verify_loader, test_loader
+    
+    return train_loader, verify_loader
 
 
 def train(model, device, train_loader, optimizer):
@@ -149,10 +157,12 @@ def verify(model, device, verify_loader):
     return avg_loss, metrics
 
 
-train_loader, verify_loader, test_loader = get_data()
+# 加载数据
+train_loader, verify_loader = get_data()
+
 from ASNet import ASNet
 model = ASNet()
-model_name = 'ASNet'
+model_name = 'ASNet_20percent'
 learning_rate = 5e-4
 loss_f = nn.MSELoss(reduction='mean')
 print("torch.cuda.is_available() = ", torch.cuda.is_available())
@@ -163,11 +173,12 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # 训练配置
 NUM_EPOCHS = 100
-best_val_loss = float('inf')  # 使用验证损失作为最佳模型选择标准(越小越好)
+best_val_loss = float('inf')  # 使用验证损失作为最佳模型选择标准
 best_model_path = f'{model_name}_best.pkl'
 
 print("="*60)
 print(f"开始训练 {model_name}")
+print("使用20%训练数据")
 print(f"训练轮数: {NUM_EPOCHS}")
 print(f"批次大小: {BATCH_SIZE}")
 print(f"学习率: {learning_rate}")

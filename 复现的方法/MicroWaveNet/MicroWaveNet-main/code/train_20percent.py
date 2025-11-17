@@ -1,3 +1,11 @@
+"""
+MicroWaveNet 20%数据训练脚本
+使用20%训练数据进行有监督训练，用于公平比较
+
+训练流程:
+1. 使用20%的训练数据(带clean标签)进行有监督训练
+2. 保存最佳模型（基于验证损失）
+"""
 import os
 import sys
 import time
@@ -46,23 +54,30 @@ class EEGDatasetASNetStyle(Data.Dataset):
 
 
 def load_data(data_dir):
-    train_input = scipy.io.loadmat(os.path.join(data_dir, 'Train_Contaminated.mat'))['data']
+    """加载20%训练数据和验证数据"""
+    # 加载完整训练集
+    full_train_input = scipy.io.loadmat(os.path.join(data_dir, 'Train_Contaminated.mat'))['data']
+    full_train_output = scipy.io.loadmat(os.path.join(data_dir, 'Train_Pure.mat'))['data']
+    
+    # 取前20%数据
+    num_samples = int(len(full_train_input) * 0.2)
+    train_input = full_train_input[:num_samples]
+    train_output = full_train_output[:num_samples]
+    
+    # 验证集
     verify_input = scipy.io.loadmat(os.path.join(data_dir, 'Val_Contaminated.mat'))['data']
-    test_input = scipy.io.loadmat(os.path.join(data_dir, 'Test_Contaminated.mat'))['data']
-
-    train_output = scipy.io.loadmat(os.path.join(data_dir, 'Train_Pure.mat'))['data']
     verify_output = scipy.io.loadmat(os.path.join(data_dir, 'Val_Pure.mat'))['data']
-    test_output = scipy.io.loadmat(os.path.join(data_dir, 'Test_Pure.mat'))['data']
+
+    print(f'训练数据（20%）: {train_input.shape}')
+    print(f'验证数据: {verify_input.shape}')
 
     train_set = EEGDatasetASNetStyle(train_input, train_output, is_train=True)
     val_set = EEGDatasetASNetStyle(verify_input, verify_output, is_train=False)
-    test_set = EEGDatasetASNetStyle(test_input, test_output, is_train=False)
 
     train_loader = Data.DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
     val_loader = Data.DataLoader(val_set, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
-    test_loader = Data.DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
 
-    return train_loader, val_loader, test_loader
+    return train_loader, val_loader
 
 
 def train_epoch(model, device, loader, optimizer):
@@ -125,7 +140,7 @@ def validate(model, device, loader):
     all_predictions = np.concatenate(all_predictions, axis=0)
     all_targets = np.concatenate(all_targets, axis=0)
     
-    # 计算评价指标 (假设采样率200Hz)
+    # 计算评价指标
     metrics = compute_all_metrics(all_predictions, all_targets, fs=200)
     
     return total_loss / max(1, count), metrics
@@ -135,18 +150,19 @@ def main():
     data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    train_loader, val_loader, test_loader = load_data(data_dir)
+    train_loader, val_loader = load_data(data_dir)
 
     model = EEGNetMorletWindowCBAMDropout(device=device)
     model.to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
-    best_val_loss = float('inf')  # 使用验证损失作为最佳模型选择标准(越小越好)
+    best_val_loss = float('inf')  # 使用验证损失作为最佳模型选择标准
     os.makedirs('results', exist_ok=True)
     
     print("="*60)
     print(f"开始训练 MicroWaveNet")
+    print("使用20%训练数据")
     print(f"训练轮数: {NUM_EPOCHS}")
     print(f"批次大小: {BATCH_SIZE}")
     print(f"学习率: {LEARNING_RATE}")
@@ -167,13 +183,13 @@ def main():
         # 只在有改进时保存最佳模型(基于验证损失)
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), 'MicroWaveNet_best.pt')
+            torch.save(model.state_dict(), 'MicroWaveNet_20percent_best.pt')
             print(f'✓ 保存最佳模型 (Val Loss: {best_val_loss:.6f})')
 
     print("\n" + "="*60)
     print('训练完成!')
     print(f'最佳验证损失: {best_val_loss:.6f}')
-    print(f'最佳模型已保存至: MicroWaveNet_best.pt')
+    print(f'最佳模型已保存至: MicroWaveNet_20percent_best.pt')
     print("="*60)
 
 

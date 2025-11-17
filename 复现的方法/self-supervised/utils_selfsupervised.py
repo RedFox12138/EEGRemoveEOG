@@ -1,3 +1,8 @@
+"""
+Self-Supervised EEG Denoising Utilities
+复制自 Self-Supervised-EEG-Denoising-main/utils.py
+用于半模拟数据集
+"""
 import torch
 import math
 
@@ -65,4 +70,3 @@ def _get_psd(tensor):
     psd = torch.abs(fft_data) ** 2 
     psd = psd[..., :psd.shape[-1] // 2] 
     return psd
-

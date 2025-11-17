@@ -372,7 +372,9 @@ def main():
         'ASNet',
         'EEGIFNet',
         'DAT-Net',
-        'MicroWaveNet'
+        'MicroWaveNet',
+        'DAT-Net-Unsupervised-v2',
+        'DAT-Net-Unsupervised-v2_finetuned_layerwise'
     ]
     
     # 1. 加载测试集真实数据
