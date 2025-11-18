@@ -24,7 +24,7 @@ from train_unsupervised import UnsupervisedEEGDataset, get_data, print_metrics
 
 # --- 全局常量配置 ---
 BATCH_SIZE = 256
-EPOCHS = 100  # 在调优时减少epoch数量以加快速度
+EPOCHS = 150  # 在调优时减少epoch数量以加快速度
 SAMPLING_RATE = 200.0
 GRAD_CLIP = 1.0
 DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -53,6 +53,27 @@ def objective(trial):
     # Artifact-aware 掩蔽参数
     mask_base = trial.suggest_float('mask_base', 0.05, 0.25)
     boost_scale = trial.suggest_float('boost_scale', 0.1, 0.5)
+    
+    # compute_artifact_prob 内部参数
+    # win_size: 用于计算伪影概率的滑动窗口大小
+    artifact_win_size = trial.suggest_int('artifact_win_size', 50, 250, step=16)
+    
+    # generate_masked_input_artifact_aware 内部参数
+    # neighborhood: N2V风格掩蔽时的邻域半径
+    mask_neighborhood = trial.suggest_int('mask_neighborhood', 3, 10)
+    
+    # _fft_highpass/lowpass cutoff 参数
+    # teacher_cutoff: teacher信号分离的高通滤波截止频率
+    teacher_cutoff = trial.suggest_float('teacher_cutoff', 4.0, 12.0)
+    
+    # lowpass_cutoff: compute_artifact_prob中低频能量计算的截止频率
+    lowpass_cutoff = trial.suggest_float('lowpass_cutoff', 2.0, 6.0)
+    
+    # teacher阈值: 决定哪些区域应用teacher损失
+    teacher_threshold = trial.suggest_float('teacher_threshold', 0.5, 0.9)
+    
+    # gamma_art_weight: 伪影区域的损失权重增强系数
+    gamma_art_weight = trial.suggest_float('gamma_art_weight', 0.5, 2.5)
 
     # --- 2. 设置模型和数据 ---
     train_x, val_x, val_y = get_data()
@@ -61,7 +82,7 @@ def objective(trial):
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
-    model = DATNet(in_channels=1, base_channels=32).to(DEVICE)
+    model = DATNet(in_channels=1, base_channels=40).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     # --- 3. 训练和验证循环 ---
@@ -81,7 +102,13 @@ def objective(trial):
                 mask_base=mask_base, boost_scale=boost_scale,
                 lambda_rec=lambda_rec, lambda_con=lambda_con, lambda_teacher=lambda_teacher,
                 lambda_n2v=lambda_n2v, lambda_band=lambda_band, lambda_low=lambda_low,
-                lambda_decor=lambda_decor, lambda_content=lambda_content
+                lambda_decor=lambda_decor, lambda_content=lambda_content,
+                gamma_art_weight=gamma_art_weight,
+                artifact_win_size=artifact_win_size,
+                mask_neighborhood=mask_neighborhood,
+                teacher_cutoff=teacher_cutoff,
+                lowpass_cutoff=lowpass_cutoff,
+                teacher_threshold=teacher_threshold
             )
             total_loss_batch.backward()
             if GRAD_CLIP > 0:
@@ -103,7 +130,13 @@ def objective(trial):
                     mask_base=mask_base, boost_scale=boost_scale,
                     lambda_rec=lambda_rec, lambda_con=lambda_con, lambda_teacher=lambda_teacher,
                     lambda_n2v=lambda_n2v, lambda_band=lambda_band, lambda_low=lambda_low,
-                    lambda_decor=lambda_decor, lambda_content=lambda_content
+                    lambda_decor=lambda_decor, lambda_content=lambda_content,
+                    gamma_art_weight=gamma_art_weight,
+                    artifact_win_size=artifact_win_size,
+                    mask_neighborhood=mask_neighborhood,
+                    teacher_cutoff=teacher_cutoff,
+                    lowpass_cutoff=lowpass_cutoff,
+                    teacher_threshold=teacher_threshold
                 )
                 val_losses.append(val_loss_batch.item())
         
@@ -142,7 +175,7 @@ def main():
     )
 
     # n_trials: 总共要运行的试验次数
-    study.optimize(objective, n_trials=100)
+    study.optimize(objective, n_trials=150)
 
     print("\n调优完成!")
     print("最佳 Trial:")

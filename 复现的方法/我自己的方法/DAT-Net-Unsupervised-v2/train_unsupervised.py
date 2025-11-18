@@ -37,31 +37,38 @@ except Exception:
 BACTH_SIZE = 256  # 拼写错误，后续引用应为 BATCH_SIZE
 BATCH_SIZE = 256
 EPOCHS = 1000
-LEARNING_RATE = 0.0089
+LEARNING_RATE = 0.0090  # 调优后的学习率
 WEIGHT_DECAY = 1e-5
 SAMPLING_RATE = 200.0
 
 USE_LR_SCHEDULER = True
 WARMUP_EPOCHS = 50
-MIN_LR = 1e-5
+MIN_LR = 1e-4  # 最小学习率 0.0001
 
 GRAD_CLIP = 1.0
 PATIENCE = 150
 
-# loss weights (v2 specific names) - 优化以防止MI下降
-LAMBDA_REC = 0.8121
-LAMBDA_CON = 1.2613
-LAMBDA_TEACHER = 0.4036
-LAMBDA_N2V = 0.2440
-LAMBDA_BAND = 0.0553
-LAMBDA_LOW = 0.0577
-LAMBDA_DECOR = 0.3153
-LAMBDA_CONTENT = 0.6763
+# loss weights (v2 specific names) - 调优后的最优参数
+LAMBDA_REC = 0.7864
+LAMBDA_CON = 1.5586
+LAMBDA_TEACHER = 0.1804
+LAMBDA_N2V = 0.3515
+LAMBDA_BAND = 0.4997
+LAMBDA_LOW = 0.0290
+LAMBDA_DECOR = 0.2217
+LAMBDA_CONTENT = 0.1662
 
 # Artifact-aware 掩蔽参数
-MASK_BASE = 0.1857        # 降低基础掩蔽比例，防止过度破坏
-BOOST_SCALE = 0.2341      # 降低伪影区域掩蔽增强
-GAMMA_ART_WEIGHT = 1.0    # 恢复默认权重
+MASK_BASE = 0.0633
+BOOST_SCALE = 0.1334
+GAMMA_ART_WEIGHT = 0.6339
+
+# 内部算法参数
+ARTIFACT_WIN_SIZE = 82  # compute_artifact_prob的窗口大小
+MASK_NEIGHBORHOOD = 5  # N2V掩蔽的邻域半径
+TEACHER_CUTOFF = 4.6188  # teacher信号分离的高通截止频率
+LOWPASS_CUTOFF = 2.7216  # 伪影检测的低频截止频率
+TEACHER_THRESHOLD = 0.7651  # teacher损失应用的阈值
 
 
 class UnsupervisedEEGDataset(Dataset):
@@ -131,6 +138,11 @@ def train_epoch(model, device, loader, optimizer):
             lambda_decor=LAMBDA_DECOR,
             lambda_content=LAMBDA_CONTENT,
             gamma_art_weight=GAMMA_ART_WEIGHT,
+            artifact_win_size=ARTIFACT_WIN_SIZE,
+            mask_neighborhood=MASK_NEIGHBORHOOD,
+            teacher_cutoff=TEACHER_CUTOFF,
+            lowpass_cutoff=LOWPASS_CUTOFF,
+            teacher_threshold=TEACHER_THRESHOLD,
         )
         total_loss_batch.backward()
         if GRAD_CLIP > 0:
@@ -184,6 +196,11 @@ def validate(model, device, loader, has_clean_labels=False):
                 lambda_decor=LAMBDA_DECOR,
                 lambda_content=LAMBDA_CONTENT,
                 gamma_art_weight=GAMMA_ART_WEIGHT,
+                artifact_win_size=ARTIFACT_WIN_SIZE,
+                mask_neighborhood=MASK_NEIGHBORHOOD,
+                teacher_cutoff=TEACHER_CUTOFF,
+                lowpass_cutoff=LOWPASS_CUTOFF,
+                teacher_threshold=TEACHER_THRESHOLD,
             )
 
             # 累积所有损失项
@@ -232,7 +249,10 @@ def main():
                 return (epoch + 1) / WARMUP_EPOCHS
             else:
                 progress = (epoch - WARMUP_EPOCHS) / max(1, (EPOCHS - WARMUP_EPOCHS))
-                return 0.5 * (1.0 + np.cos(np.pi * progress))
+                # 余弦退火，但保证不低于 MIN_LR
+                cosine_factor = 0.5 * (1.0 + np.cos(np.pi * progress))
+                min_factor = MIN_LR / LEARNING_RATE
+                return max(min_factor, cosine_factor)
         scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lambda)
     else:
         scheduler = None

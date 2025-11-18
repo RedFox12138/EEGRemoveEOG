@@ -28,12 +28,76 @@ sys.path.insert(0, parent)
 
 try:
     from unsupervised_artifact_v1 import (
-        compute_artifact_prob,
+        compute_artifact_prob as _compute_artifact_prob_v1,
         generate_masked_input_artifact_aware,
         _fft_highpass,
+        _fft_lowpass,
+        _moving_average,
     )
 except Exception as e:
     raise ImportError(f"无法导入 unsupervised_artifact_v1 中的工具函数: {e}")
+
+
+def compute_artifact_prob_v2(x: torch.Tensor, fs: float, win_size: int = 64, lowpass_cutoff: float = 4.0) -> torch.Tensor:
+    """
+    扩展版的 compute_artifact_prob，支持自定义 lowpass_cutoff
+    
+    输入:
+        x: (B, 1, L) 原始单通道 EEG（含伪影）
+        fs: 采样率
+        win_size: 滑动窗口大小
+        lowpass_cutoff: 低频能量计算的截止频率
+    输出:
+        p_art: (B, 1, L)，每个时间点是伪影的概率，范围 [0, 1]
+    """
+    eps = 1e-8
+    B, C, L = x.shape
+    device = x.device
+
+    # 1) 局部幅度: 局部平均绝对值
+    amp = _moving_average(torch.abs(x), win_size)
+
+    # 2) 局部变化速度: 平滑后的 |x(t+1)-x(t)| 的窗口平均
+    diff = torch.abs(x[:, :, 1:] - x[:, :, :-1])
+    diff = F.pad(diff, (0, 1))  # 恢复长度
+    diff = _moving_average(diff, win_size)
+
+    # 3) 低频能量占比 r(t) - 使用可配置的 lowpass_cutoff
+    x_low = _fft_lowpass(x, fs, cutoff=lowpass_cutoff)
+    power_low = _moving_average(x_low ** 2, win_size)
+    power_total = _moving_average(x ** 2, win_size)
+    r = power_low / (power_total + eps)
+
+    # 4) 归一化（用 MAD）
+    def mad_normalize(a: torch.Tensor):
+        med = a.median(dim=-1, keepdim=True).values
+        mad = (a - med).abs().median(dim=-1, keepdim=True).values
+        mad = mad.clamp(min=eps)
+        return (a - med) / mad
+
+    amp_n = mad_normalize(amp)
+    diff_n = mad_normalize(diff)
+    r_n = mad_normalize(r)
+
+    # 5) 线性加权得到分数 s(t)
+    s = amp_n + diff_n + r_n
+
+    # 6) 非线性映射：减去 70% 分位数阈值，再 sigmoid
+    try:
+        tau = torch.quantile(s, 0.7, dim=-1, keepdim=True)
+    except Exception:
+        tau_vals = []
+        s_np = s.detach().cpu().numpy()
+        import numpy as _np
+        for i in range(s_np.shape[0]):
+            tau_vals.append(_np.quantile(s_np[i, 0, :], 0.7))
+        tau = torch.tensor(_np.array(tau_vals), device=device, dtype=s.dtype).view(B, 1, 1)
+
+    alpha = 10.0
+    p = torch.sigmoid(alpha * (s - tau))
+    p = p.clamp(0.0, 1.0)
+    return p
+
 
 
 def unsupervised_dat_loss_artifact_v2(
@@ -51,6 +115,11 @@ def unsupervised_dat_loss_artifact_v2(
     lambda_decor: float = 0.3153,
     lambda_content: float = 0.6763,
     gamma_art_weight: float = 1.0,
+    artifact_win_size: int = 64,
+    mask_neighborhood: int = 5,
+    teacher_cutoff: float = 8.0,
+    lowpass_cutoff: float = 4.0,
+    teacher_threshold: float = 0.7,
 ):
     """
     Artifact-aware 无监督 Version 2（dual-branch）
@@ -65,7 +134,7 @@ def unsupervised_dat_loss_artifact_v2(
 
     # ---------- 构造分支输入 ----------
     x_A, mask_A = generate_masked_input_artifact_aware(
-        eeg_raw_input, fs, mask_base=mask_base, boost_scale=boost_scale
+        eeg_raw_input, fs, mask_base=mask_base, boost_scale=boost_scale, neighborhood=mask_neighborhood
     )
     # 方案1: 分支 B 直接用原始输入
     x_B = eeg_raw_input
@@ -79,7 +148,7 @@ def unsupervised_dat_loss_artifact_v2(
     y_B = c_B + a_B
 
     # ---------- 伪影概率与加权 ----------
-    p_art = compute_artifact_prob(eeg_raw_input, fs)  # (B,1,L)
+    p_art = compute_artifact_prob_v2(eeg_raw_input, fs, win_size=artifact_win_size, lowpass_cutoff=lowpass_cutoff)  # (B,1,L)
     w = 1.0 + gamma_art_weight * p_art
 
     # ---------- 损失项 1: 分支 B 的重建损失（加权 MSE） ----------
@@ -108,10 +177,10 @@ def unsupervised_dat_loss_artifact_v2(
         loss_n2v = torch.tensor(0.0, device=device)
 
     # ---------- 损失项 4: Artifact-aware teacher（high-pass/low-pass） ----------
-    x_hp = _fft_highpass(eeg_raw_input, fs, cutoff=8.0)
+    x_hp = _fft_highpass(eeg_raw_input, fs, cutoff=teacher_cutoff)
     x_art = eeg_raw_input - x_hp
 
-    mask_teacher = (p_art > 0.7)
+    mask_teacher = (p_art > teacher_threshold)
     if mask_teacher.sum() > 0:
         loss_teacher_clean = F.mse_loss(c_B[mask_teacher], x_hp[mask_teacher])
         loss_teacher_art = F.mse_loss(a_B[mask_teacher], x_art[mask_teacher])
@@ -124,12 +193,12 @@ def unsupervised_dat_loss_artifact_v2(
     # 5.1 频带先验：clean应该保留高频EEG特征，artifact应该保留低频伪影特征
     if lambda_band > 0.0:
         # Clean通道应该与高通滤波后的信号相似
-        c_hp = _fft_highpass(c_B, fs, cutoff=8.0)
-        x_hp_ref = _fft_highpass(eeg_raw_input, fs, cutoff=8.0)
+        c_hp = _fft_highpass(c_B, fs, cutoff=teacher_cutoff)
+        x_hp_ref = _fft_highpass(eeg_raw_input, fs, cutoff=teacher_cutoff)
         loss_band_clean = F.mse_loss(c_hp, x_hp_ref)
         
         # Artifact通道应该是低频为主
-        a_hp = _fft_highpass(a_B, fs, cutoff=8.0)
+        a_hp = _fft_highpass(a_B, fs, cutoff=teacher_cutoff)
         loss_band_art = (a_hp ** 2).mean()  # 惩罚artifact的高频成分
         
         loss_band = loss_band_clean + loss_band_art

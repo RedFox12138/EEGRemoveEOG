@@ -341,7 +341,7 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
     # 创建模型并加载预训练权重
-    model = DATNet(in_channels=1, base_channels=32).to(device)
+    model = DATNet(in_channels=1, base_channels=40).to(device)
 
     pretrained_path = 'DAT-Net-Unsupervised-v2_best.pth'
     if os.path.exists(pretrained_path):
