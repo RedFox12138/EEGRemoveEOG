@@ -141,15 +141,14 @@ class DenoiseEEG(nn.Module):
         self.up2 = UnetUp(2 * n_feat, n_feat)
         self.trans4 = TransformerBlock(n_feat, length)
 
-        self.out = nn.Sequential(
-            nn.AdaptiveAvgPool2d((in_channels, None)),
-            nn.Linear(length, length),
-        )
+        # 修正：移除奇怪的 GAP+Linear 和 Skip Connection
+        # 改为标准的 1x1 卷积输出头，将特征映射回单通道信号
+        self.out = nn.Conv1d(n_feat, in_channels, kernel_size=1)
 
     def forward(self, x):
-        x = self.init_conv(x)
+        x_in = self.init_conv(x)
 
-        down1 = self.down1(x)
+        down1 = self.down1(x_in)
         down1 = self.trans1(down1)
 
         down2 = self.down2(down1) 
@@ -161,7 +160,11 @@ class DenoiseEEG(nn.Module):
         up1 = self.up2(up2, down1)
         up1 = self.trans4(up1)
 
-        out = self.out(torch.cat((up1, x), 1))
+        # 修正：严禁将原始输入 x 拼接到这里！
+        # 否则模型会直接学习恒等映射 (Identity Mapping)，导致无法去噪。
+        # out = self.out(torch.cat((up1, x), 1)) 
+        
+        out = self.out(up1)
         return out
     
     def count_parameters(self):

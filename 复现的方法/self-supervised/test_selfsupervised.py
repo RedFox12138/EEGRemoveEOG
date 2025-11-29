@@ -13,20 +13,14 @@ from time import time
 
 # 添加路径以导入metrics
 current_dir = os.path.dirname(os.path.abspath(__file__))
-root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-sys.path.insert(0, os.path.join(root_dir, '复现的方法'))
+parent_dir = os.path.dirname(current_dir) # 复现的方法
+sys.path.insert(0, parent_dir)
 
 # 导入模型
 from model_selfsupervised import DenoiseEEG
 
 # 导入metrics
-try:
-    from metrics_utils import compute_all_metrics, print_metrics
-except Exception:
-    def compute_all_metrics(pred, target, fs):
-        return {'RRMSE':0.0,'CC':0.0,'PRD':0.0,'SNR':0.0,'RMSE':0.0,'MAE':0.0,'PSNR':0.0,'SSIM':0.0}
-    def print_metrics(m, prefix=""):
-        print(prefix, 'Metrics:', m)
+from metrics_utils import compute_all_metrics, print_metrics
 
 
 # ========== 配置 ==========
@@ -123,16 +117,16 @@ def main():
             # 添加通道维度
             noisy_t = noisy.float().unsqueeze(1).to(device)  # (B, 1, L)
             
-            # 恢复原始尺度
-            norm_t = norm.float().view(-1, 1, 1).to(device)
-            noisy_t = noisy_t * norm_t
-            
-            # 前向传播
+            # 前向传播 (输入归一化数据)
             output = model(noisy_t)
             
+            # 恢复原始尺度
+            norm_t = norm.float().view(-1, 1, 1).to(device)
+            output_denorm = output * norm_t
+            
             # 保存结果
-            predictions.append(output.squeeze(1).cpu().numpy())
-            targets.append(clean.numpy())
+            predictions.append(output_denorm.squeeze(1).cpu().numpy())
+            targets.append(clean.numpy()) # clean 已经是原始尺度
 
     total_time = time() - start
     time_per_sample = total_time / max(1, sample_count)

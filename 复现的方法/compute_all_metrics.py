@@ -374,7 +374,8 @@ def main():
         'DAT-Net',
         'MicroWaveNet',
         'DAT-Net-Unsupervised-v2',
-        'DAT-Net-Unsupervised-v2_finetuned_layerwise'
+        'DAT-Net-Unsupervised-v2_finetuned',
+        'DAT-Net-Unsupervised-v2_finetuned_best'
     ]
     
     # 1. 加载测试集真实数据

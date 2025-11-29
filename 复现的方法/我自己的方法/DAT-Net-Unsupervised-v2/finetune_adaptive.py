@@ -45,14 +45,25 @@ except Exception:
 # ========== 超参数配置 ==========
 BATCH_SIZE = 256
 SAMPLING_RATE = 200.0
-WEIGHT_DECAY = 1e-5
-
-# ========== 微调阶段：分层学习率 ==========
+#
+# # ========== 微调阶段：分层学习率 ==========
 STAGE2_EPOCHS = 10000
-STAGE2_LR_ENCODER = 1e-4     # Encoder慢速微调
-STAGE2_LR_BOTTLENECK = 3e-4  # Bottleneck中速
-STAGE2_LR_DECODER = 5e-4     # Decoder较快
-STAGE2_LR_OUTPUT = 1e-3      # 输出头最快
+# STAGE2_LR_ENCODER = 1e-4     # Encoder慢速微调
+# STAGE2_LR_BOTTLENECK = 3e-3  # Bottleneck中速
+# STAGE2_LR_DECODER = 5e-3     # Decoder较快
+# STAGE2_LR_OUTPUT = 1e-3      # 输出头最快
+# USE_WARMUP = False           # 不使用warmup
+
+WARMUP_EPOCHS = 10           # warmup轮数
+PATIENCE = 2000              # 早停耐心值
+
+STAGE2_LR_ENCODER = 0.000951
+STAGE2_LR_BOTTLENECK = 0.003900
+STAGE2_LR_DECODER = 0.004390
+STAGE2_LR_OUTPUT = 0.002148
+WEIGHT_DECAY = 0.000019
+GRAD_CLIP = 1.516651
+USE_LR_DECAY = True
 
 
 
@@ -68,13 +79,13 @@ class SupervisedDataset(Dataset):
         noisy = self.noisy[idx]
         clean = self.clean[idx]
         
-        # 归一化
+        # 归一化（注意：clean也要用noisy的norm来归一化，保持一致）
         norm = np.max(np.abs(noisy))
         if norm == 0:
             norm = 1.0
         
         noisy_norm = torch.tensor(noisy.astype('float32') / norm, dtype=torch.float32)
-        clean_norm = torch.tensor(clean.astype('float32') / norm, dtype=torch.float32)
+        clean_norm = torch.tensor(clean.astype('float32') / norm, dtype=torch.float32)  # clean也要归一化
         
         return noisy_norm, clean_norm, norm
 
@@ -88,7 +99,7 @@ def get_data():
     full_train_y = scipy.io.loadmat(f'{data_dir}/Train_Pure.mat')['data']
     
     # 取前20%数据
-    num_samples = int(len(full_train_x) * 0.2)
+    num_samples = int(len(full_train_x) * 0.3)
     train_x = full_train_x[:num_samples]
     train_y = full_train_y[:num_samples]
     
@@ -183,25 +194,44 @@ def get_layerwise_params_stage2(model):
     return param_groups
 
 
-def train_epoch(model, device, loader, optimizer):
+def train_epoch(model, device, loader, optimizer, epoch=1):
     """有监督训练一个epoch"""
     model.train()
     total_loss = 0.0
     num_batches = 0
     
-    for noisy, clean, _ in loader:
+    for batch_idx, (noisy, clean, norm) in enumerate(loader):
         noisy = noisy.float().unsqueeze(1).to(device)  # (B, 1, L)
         clean = clean.float().unsqueeze(1).to(device)  # (B, 1, L)
+        norm = norm.float().to(device).view(-1, 1, 1)
+        
+        # 恢复到原始尺度（与无监督训练保持一致）
+        noisy_scaled = noisy * norm
+        clean_scaled = clean * norm
+        
+        # 调试：打印第一个batch的数据范围
+        if epoch == 1 and batch_idx == 0:
+            print(f"\n[调试信息]")
+            print(f"  noisy (归一化): min={noisy.min():.4f}, max={noisy.max():.4f}")
+            print(f"  noisy_scaled (原始): min={noisy_scaled.min():.4f}, max={noisy_scaled.max():.4f}")
+            print(f"  clean (归一化): min={clean.min():.4f}, max={clean.max():.4f}")
+            print(f"  clean_scaled (原始): min={clean_scaled.min():.4f}, max={clean_scaled.max():.4f}")
+            print(f"  norm: min={norm.min():.4f}, max={norm.max():.4f}\n")
         
         optimizer.zero_grad()
         
         # 前向传播（模型返回 eeg_clean 和 eog_artifact）
-        eeg_clean, _ = model(noisy)
+        eeg_clean, _ = model(noisy_scaled)
+        
+        # 调试：打印第一个batch的输出范围
+        if epoch == 1 and batch_idx == 0:
+            print(f"  eeg_clean (输出): min={eeg_clean.min():.4f}, max={eeg_clean.max():.4f}\n")
         
         # MSE损失（只使用clean分支）
-        loss = F.mse_loss(eeg_clean, clean)
+        loss = F.mse_loss(eeg_clean, clean_scaled)
         
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)  # 使用调优后的梯度裁剪
         optimizer.step()
         
         total_loss += loss.item()
@@ -222,21 +252,26 @@ def validate(model, device, loader):
         for noisy, clean, norm in loader:
             noisy = noisy.float().unsqueeze(1).to(device)
             clean_norm = clean.float().unsqueeze(1).to(device)
+            norm_t = norm.float().to(device).view(-1, 1, 1)
+            
+            # 恢复到原始尺度（与训练保持一致）
+            noisy_scaled = noisy * norm_t
+            clean_scaled = clean_norm * norm_t
             
             # 前向传播（模型返回 eeg_clean 和 eog_artifact）
-            eeg_clean, _ = model(noisy)
+            eeg_clean, _ = model(noisy_scaled)
             
-            # 计算验证损失（在归一化空间）
-            loss = F.mse_loss(eeg_clean, clean_norm)
+            # 计算验证损失（在原始尺度）
+            loss = F.mse_loss(eeg_clean, clean_scaled)
             total_loss += loss.item()
             num_batches += 1
             
-            # 恢复到原始尺度用于计算指标
-            output_scaled = eeg_clean.squeeze(1).cpu().numpy() * norm.numpy().reshape(-1, 1)
-            clean_scaled = clean.cpu().numpy() * norm.numpy().reshape(-1, 1)
+            # 用于计算指标
+            output_scaled = eeg_clean.squeeze(1).cpu().numpy()
+            clean_scaled_np = clean_scaled.squeeze(1).cpu().numpy()
             
             all_preds.append(output_scaled)
-            all_targets.append(clean_scaled)
+            all_targets.append(clean_scaled_np)
     
     # 合并所有批次
     all_preds = np.concatenate(all_preds, axis=0)
@@ -273,19 +308,20 @@ def test_on_testset(model, device, model_suffix):
     with torch.no_grad():
         for noisy, clean, norm in test_loader:
             sample_count += noisy.shape[0]
-            noisy = noisy.float().unsqueeze(1).to(device)
             
-            # 前向传播
-            eeg_clean, eog_artifact = model(noisy)
+            # ✅ 与训练时保持一致：输入归一化数据，在循环中乘回 norm，然后传入模型
+            noisy_t = noisy.float().unsqueeze(1).to(device)  # (B, 1, L) - 归一化的
+            norm_t = norm.float().view(-1, 1, 1).to(device)  # (B, 1, 1)
+            noisy_scaled = noisy_t * norm_t  # 恢复原始尺度（与训练时一致）
             
-            # 恢复到原始尺度
-            output_scaled = eeg_clean.squeeze(1).cpu().numpy() * norm.numpy().reshape(-1, 1)
-            eog_scaled = eog_artifact.squeeze(1).cpu().numpy() * norm.numpy().reshape(-1, 1)
-            clean_scaled = clean.cpu().numpy() * norm.numpy().reshape(-1, 1)
+            # 前向传播 - 使用原始尺度的数据（与训练时一致）
+            eeg_clean, eog_artifact = model(noisy_scaled)
             
-            all_preds.append(output_scaled)
-            all_eog_preds.append(eog_scaled)
-            all_targets.append(clean_scaled)
+            # 模型输出已经是原始尺度，targets也要恢复到原始尺度
+            all_preds.append(eeg_clean.squeeze(1).cpu().numpy())
+            all_eog_preds.append(eog_artifact.squeeze(1).cpu().numpy())
+            # clean是归一化的，需要乘回norm恢复原始尺度
+            all_targets.append(clean.cpu().numpy() * norm.cpu().numpy().reshape(-1, 1))
     
     total_time = time() - start
     time_per_sample = total_time / max(1, sample_count)
@@ -341,7 +377,7 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
     # 创建模型并加载预训练权重
-    model = DATNet(in_channels=1, base_channels=40).to(device)
+    model = DATNet(in_channels=1, base_channels=32).to(device)
 
     pretrained_path = 'DAT-Net-Unsupervised-v2_best.pth'
     if os.path.exists(pretrained_path):
@@ -362,34 +398,60 @@ def main():
     param_groups = get_layerwise_params_stage2(model)
     optimizer = optim.Adam(param_groups, weight_decay=WEIGHT_DECAY)
 
+    # 根据调优结果决定是否使用学习率衰减
+    schedulers = []
+    if USE_LR_DECAY:
+        # 为每个参数组设置独立的学习率调度器（余弦退火，最低为初始值的十分之一）
+        for i, group in enumerate(optimizer.param_groups):
+            init_lr = group['lr']
+            min_lr = init_lr / 10
+            def make_lr_lambda(init_lr, min_lr):
+                def lr_lambda(epoch):
+                    # 余弦退火到 min_lr
+                    progress = epoch / STAGE2_EPOCHS
+                    cos_factor = 0.5 * (1 + np.cos(np.pi * progress))
+                    lr = min_lr + (init_lr - min_lr) * cos_factor
+                    return lr / init_lr
+                return lr_lambda
+            schedulers.append(optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=make_lr_lambda(init_lr, min_lr), last_epoch=-1))
+    else:
+        schedulers = None
+
     best_val_loss = float('inf')
     best_val_cc = -1.0
     no_improve_count = 0
+    start_time = time()
 
     for epoch in range(1, STAGE2_EPOCHS + 1):
-        train_loss = train_epoch(model, device, train_loader, optimizer)
+        train_loss = train_epoch(model, device, train_loader, optimizer, epoch)
         val_loss, val_metrics = validate(model, device, val_loader)
         val_cc = val_metrics.get('CC', 0)
 
-        # 每轮都打印（需要密切监控）
-        print(f'Epoch {epoch:3d}/{STAGE2_EPOCHS} | Train: {train_loss:.6f} | Val: {val_loss:.6f} | CC: {val_cc:.4f}')
+        # 如果使用学习率衰减，则更新学习率
+        if schedulers is not None:
+            for sch in schedulers:
+                sch.step()
+
+        # 打印所有参数组的学习率
+        lr_str = ' | '.join([f"{group['name']}: {group['lr']:.2e}" for group in optimizer.param_groups])
+        print(f'Epoch {epoch:3d}/{STAGE2_EPOCHS} | Train: {train_loss:.6f} | Val: {val_loss:.6f} | CC: {val_cc:.4f} | LR: {lr_str}')
 
         # 保存最佳模型（基于验证损失）
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_val_cc = val_cc
-            torch.save(model.state_dict(), 'DAT-Net-Unsupervised-v2_finetuned_best.pth')
+            torch.save(model.state_dict(), 'DAT-Net-Unsupervised-v2_finetuned_best_40%数据.pth')
             print(f'  ✅ 保存最佳模型 (Val Loss: {val_loss:.6f}, CC: {val_cc:.4f})')
             no_improve_count = 0
         else:
             no_improve_count += 1
 
-        # 早停（连续30轮无改善）
-        if no_improve_count >= 30:
+        # 早停
+        if no_improve_count >= PATIENCE:
             print(f'\n验证损失连续{no_improve_count}轮无改善，提前停止训练')
             break
 
-    total_elapsed = time() - time()
+    total_elapsed = time() - start_time
 
     # 保存最终模型
     torch.save(model.state_dict(), 'DAT-Net-Unsupervised-v2_finetuned_final.pth')
@@ -406,7 +468,7 @@ def main():
     print(f'  - DAT-Net-Unsupervised-v2_finetuned_final.pth (最终模型)')
 
     # 加载最佳模型并在测试集上评估
-    best_model_path = 'DAT-Net-Unsupervised-v2_finetuned_best.pth'
+    best_model_path = 'DAT-Net-Unsupervised-v2_finetuned_best_20%数据.pth'
     if os.path.exists(best_model_path):
         print(f'\n加载最佳模型进行测试集评估: {best_model_path}')
         model.load_state_dict(torch.load(best_model_path, map_location=device))

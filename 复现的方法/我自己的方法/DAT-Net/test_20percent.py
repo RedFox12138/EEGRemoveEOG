@@ -82,13 +82,13 @@ def main():
     model = DATNet(in_channels=1, base_channels=32).to(device)
     print(f'模型参数量: {model.count_parameters():,}')
     
-    model_path = 'DAT-Net_20percent_best.pth'
+    model_path = 'DAT-Net_10percent_best.pth'
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path, map_location=device))
         print(f'加载模型: {model_path}')
     else:
         print('⚠️  找不到训练好的模型，尝试使用 final 版本...')
-        model_path = 'DAT-Net_20percent_final.pth'
+        model_path = 'DAT-Net_10percent_final.pth'
         if os.path.exists(model_path):
             model.load_state_dict(torch.load(model_path, map_location=device))
             print(f'加载模型: {model_path}')

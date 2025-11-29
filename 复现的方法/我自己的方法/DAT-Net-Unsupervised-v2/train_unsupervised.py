@@ -34,16 +34,15 @@ except Exception:
 
 
 # ========== 超参数配置 ==========
-BACTH_SIZE = 256  # 拼写错误，后续引用应为 BATCH_SIZE
 BATCH_SIZE = 256
-EPOCHS = 1000
+EPOCHS = 1500
 LEARNING_RATE = 0.0090  # 调优后的学习率
 WEIGHT_DECAY = 1e-5
 SAMPLING_RATE = 200.0
 
 USE_LR_SCHEDULER = True
 WARMUP_EPOCHS = 50
-MIN_LR = 1e-4  # 最小学习率 0.0001
+MIN_LR = 1e-3  # 最小学习率 0.0001
 
 GRAD_CLIP = 1.0
 PATIENCE = 150

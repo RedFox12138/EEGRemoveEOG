@@ -114,13 +114,13 @@ class Self2Self_UNet1D(nn.Module):
         # 解码器
         self.decoders = nn.ModuleList()
         for i in range(n_depth):
-            # 输入是上一层输出+skip connection
+            # 输入是上一层输出+skip connection，拼接后为base_channels*2，输出为base_channels
             self.decoders.append(
-                DecoderBlock(base_channels * 2, base_channels * 2, dropout=dropout)
+                DecoderBlock(base_channels * 2, base_channels, dropout=dropout)
             )
         
         # 最后的卷积层
-        self.dec_conv_final_a = Conv1DBlock(base_channels * 2, 64, kernel_size=3, dropout=dropout)
+        self.dec_conv_final_a = Conv1DBlock(base_channels, 64, kernel_size=3, dropout=dropout)
         self.dec_conv_final_b = Conv1DBlock(64, 32, kernel_size=3, dropout=dropout)
         
         # 输出层（使用sigmoid激活）
@@ -136,10 +136,13 @@ class Self2Self_UNet1D(nn.Module):
         x : torch.Tensor
             输入信号 (batch, channels, time_steps)
         apply_input_dropout : bool
-            是否在输入上应用dropout掩蔽（训练时True，推理时False）
+            是否在输入上应用dropout掩蔽
+            - 训练时：True（掩蔽输入进行Self2Self训练）
+            - 推理时：True（用于多次预测平均）
         """
         # Self2Self的关键：在输入上应用dropout掩蔽
-        if apply_input_dropout and self.training:
+        # 注意：推理时也需要dropout来生成不同的预测！
+        if apply_input_dropout:
             # 创建dropout掩蔽
             mask = torch.bernoulli(torch.full_like(x, 1 - self.dropout))
             x_masked = x * mask
@@ -195,21 +198,33 @@ class Self2Self_UNet1D(nn.Module):
         """
         推理时的平均预测（Self2Self的关键）
         
+        Self2Self推理策略：
+        1. 保持训练模式（以激活Dropout）
+        2. 多次前向传播，每次使用不同的dropout掩蔽
+        3. 平均所有预测以获得稳定的去噪结果
+        
         Parameters:
         -----------
         x : torch.Tensor
             输入信号
         n_predictions : int
-            前向传播的次数
+            前向传播的次数（原论文使用100次）
         """
-        self.eval()
+        # 保持训练模式以激活dropout！
+        was_training = self.training
+        self.train()  # 必须保持训练模式，否则dropout会被关闭
+        
         predictions = []
         
-        with torch.no_grad():
+        with torch.no_grad():  # 不需要梯度，但需要dropout
             for _ in range(n_predictions):
                 # 每次使用不同的dropout掩蔽
                 pred = self.forward(x, apply_input_dropout=True)
                 predictions.append(pred)
+        
+        # 恢复原来的模式
+        if not was_training:
+            self.eval()
         
         # 平均所有预测
         avg_prediction = torch.stack(predictions).mean(dim=0)

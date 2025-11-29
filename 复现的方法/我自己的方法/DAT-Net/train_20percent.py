@@ -36,7 +36,7 @@ BATCH_SIZE = 500
 EPOCHS = 1000
 LEARNING_RATE = 5e-4
 WEIGHT_DECAY = 0
-DATA_PERCENT = 0.2  # 使用 20% 的训练数据
+DATA_PERCENT = 0.1  # 使用 20% 的训练数据
 RANDOM_SEED = 42  # 随机种子，确保可复现
 
 
@@ -302,7 +302,7 @@ def main():
         current_cc = val_metrics['CC']
         if current_cc > best_cc:
             best_cc = current_cc
-            torch.save(model.state_dict(), 'DAT-Net_20percent_best.pth')
+            torch.save(model.state_dict(), 'DAT-Net_10percent_best.pth')
             print(f'✓ 保存最佳模型 (CC: {best_cc:.4f})')
         
         elapsed = time() - start_time

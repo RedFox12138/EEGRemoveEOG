@@ -4,6 +4,7 @@ Self2Self 1D EEG Denoising 训练脚本
 """
 import os
 import sys
+from pathlib import Path
 import scipy.io
 import numpy as np
 import torch
@@ -12,13 +13,16 @@ from torch.utils.data import Dataset, DataLoader
 from time import time
 
 # 添加路径
-current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, current_dir)
+current_dir = Path(__file__).parent.resolve()
+sys.path.insert(0, str(current_dir))
+
+# 确保当前目录存在（处理符号链接等特殊情况）
+current_dir.mkdir(parents=True, exist_ok=True)
 
 # 尝试导入metrics
 try:
-    parent_dir = os.path.dirname(current_dir)
-    sys.path.insert(0, parent_dir)
+    parent_dir = current_dir.parent
+    sys.path.insert(0, str(parent_dir))
     from metrics_utils import compute_all_metrics, print_metrics
 except Exception:
     def compute_all_metrics(pred, target, fs): return {'RRMSE':0,'CC':0,'RRMSE_PSD':0,'MI':0}
@@ -30,7 +34,7 @@ from s2s_model_1d import Self2Self_UNet1D, self2self_loss
 # ========== 超参数配置 ==========
 BATCH_SIZE = 32
 EPOCHS = 500
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 0.0
 SAMPLING_RATE = 200.0
 
@@ -41,7 +45,7 @@ MIN_LR = 1e-6
 
 # 训练配置
 GRAD_CLIP = 1.0
-PATIENCE = 80
+PATIENCE = 800
 
 # Self2Self参数
 DROPOUT_RATE = 0.3      # Dropout概率（掩蔽比例）
@@ -77,8 +81,10 @@ class EEGDataset(Dataset):
         
         if self.has_clean:
             clean = self.clean[idx]
+            # clean也使用相同的归一化参数（基于noisy的min/max）
+            clean_norm = (clean - norm_min) / norm_range
             return (torch.from_numpy(noisy_norm).float(), 
-                   torch.from_numpy(clean).float(),
+                   torch.from_numpy(clean_norm).float(),
                    norm_min, norm_range)
         else:
             return torch.from_numpy(noisy_norm).float(), norm_min, norm_range
@@ -132,14 +138,26 @@ def train_epoch(model, device, loader, optimizer):
     return total_loss / max(1, num_batches)
 
 
-def validate(model, device, loader, has_clean_labels=False):
-    """验证模型"""
+def validate(model, device, loader, has_clean_labels=False, n_predictions=None):
+    """
+    验证模型
+    
+    Parameters:
+    -----------
+    n_predictions : int or None
+        推理时使用的预测次数。
+        - None: 使用单次前向传播（快速，但精度略低）
+        - int: 使用多次预测平均（慢，但精度高）
+    """
     model.eval()
     total_loss = 0.0
     num_batches = 0
     
     all_preds = []
     all_targets = []
+    
+    # 根据是否需要计算指标，决定使用快速模式还是完整模式
+    use_averaging = (n_predictions is not None) and has_clean_labels
     
     with torch.no_grad():
         for batch in loader:
@@ -158,17 +176,20 @@ def validate(model, device, loader, has_clean_labels=False):
             total_loss += loss.item()
             num_batches += 1
             
-            # 如果有干净标签，使用多次预测平均来计算指标
-            if has_clean_labels and clean is not None:
+            # 如果需要计算完整指标，使用多次预测平均
+            if use_averaging and clean is not None:
                 # 使用多次预测平均（更准确但更慢）
-                pred_avg = model.predict_average(noisy, n_predictions=N_PREDICTIONS)
+                pred_avg = model.predict_average(noisy, n_predictions=n_predictions)
                 
                 # 反归一化到原始尺度
                 pred_denorm = pred_avg.squeeze(1).cpu().numpy()
                 pred_denorm = pred_denorm * norm_range.numpy()[:, None] + norm_min.numpy()[:, None]
                 
+                # clean也反归一化（它在数据集中已经被归一化了）
+                clean_denorm = clean.numpy() * norm_range.numpy()[:, None] + norm_min.numpy()[:, None]
+                
                 all_preds.append(pred_denorm)
-                all_targets.append(clean.numpy())
+                all_targets.append(clean_denorm)
     
     avg_loss = total_loss / max(1, num_batches)
     
@@ -209,6 +230,9 @@ def main():
     
     # 创建模型
     print(f'\n创建模型...')
+    print(f'模型保存路径: {current_dir}')
+    print(f'路径是否存在: {current_dir.exists()}')
+    
     model = Self2Self_UNet1D(
         in_channels=1,
         base_channels=BASE_CHANNELS,
@@ -260,25 +284,37 @@ def main():
         train_loss = train_epoch(model, device, train_loader, optimizer)
         print(f'Train Loss: {train_loss:.6f}')
         
-        # 验证（每5个epoch验证一次以节省时间）
-        if epoch % 5 == 0 or epoch == 1:
-            val_loss, val_metrics = validate(model, device, val_loader, 
-                                            has_clean_labels=(val_y is not None))
-            print(f'Val Loss:   {val_loss:.6f}')
-            
+        # 每轮都验证，但只在特定epoch计算完整指标
+        compute_full_metrics = (epoch % 5 == 0 or epoch == 1)
+        n_pred = N_PREDICTIONS if compute_full_metrics else None
+        
+        val_loss, val_metrics = validate(model, device, val_loader, 
+                                        has_clean_labels=(val_y is not None),
+                                        n_predictions=n_pred)
+        print(f'Val Loss:   {val_loss:.6f}')
+        
+        if val_metrics is not None:
+            print_metrics(val_metrics, prefix='验证集')
+        
+        # 保存最佳模型
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
             if val_metrics is not None:
-                print_metrics(val_metrics, prefix='验证集')
-            
-            # 保存最佳模型
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
                 best_metrics = val_metrics
-                print(f'\n✓ 验证损失降低: {best_val_loss:.6f}')
-                torch.save(model.state_dict(), 
-                          os.path.join(current_dir, 'Self2Self_1D_best.pth'))
-                patience_counter = 0
-            else:
-                patience_counter += 5  # 因为每5个epoch验证一次
+            print(f'\n✓ 验证损失降低: {best_val_loss:.6f}')
+            
+            # 保存模型 - 使用相对于工作目录的路径
+            save_filename = 'Self2Self_1D_best.pth'
+            # 切换到脚本所在目录保存
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(str(current_dir))
+                torch.save(model.state_dict(), save_filename)
+                print(f'模型已保存到: {current_dir / save_filename}')
+            finally:
+                os.chdir(original_cwd)
+            
+            patience_counter = 0
         else:
             patience_counter += 1
         
@@ -299,12 +335,24 @@ def main():
         
         # 每50个epoch保存一次检查点
         if epoch % 50 == 0:
-            torch.save(model.state_dict(), 
-                      os.path.join(current_dir, f'Self2Self_1D_epoch_{epoch}.pth'))
+            save_filename = f'Self2Self_1D_epoch_{epoch}.pth'
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(str(current_dir))
+                torch.save(model.state_dict(), save_filename)
+                print(f'检查点已保存: {save_filename}')
+            finally:
+                os.chdir(original_cwd)
     
     # 保存最终模型
-    torch.save(model.state_dict(), 
-              os.path.join(current_dir, 'Self2Self_1D_final.pth'))
+    save_filename = 'Self2Self_1D_final.pth'
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(str(current_dir))
+        torch.save(model.state_dict(), save_filename)
+        print(f'\n最终模型已保存到: {current_dir / save_filename}')
+    finally:
+        os.chdir(original_cwd)
     
     print('\n' + '='*70)
     print('训练完成！')

@@ -20,23 +20,19 @@ from time import time
 
 # 添加路径以导入metrics
 current_dir = os.path.dirname(os.path.abspath(__file__))
-root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-sys.path.insert(0, os.path.join(root_dir, '复现的方法'))
+parent_dir = os.path.dirname(current_dir)  # 复现的方法
+sys.path.insert(0, parent_dir)
 
 # 导入模型
 from model_selfsupervised import DenoiseEEG
 
 # 导入metrics
-try:
-    from metrics_utils import compute_all_metrics, print_metrics
-except Exception:
-    def compute_all_metrics(pred, target, fs): return {}
-    def print_metrics(m, prefix=""): pass
+from metrics_utils import compute_all_metrics, print_metrics
 
 
 # ========== 超参数配置 ==========
 BATCH_SIZE = 256
-EPOCHS = 200
+EPOCHS = 300
 LEARNING_RATE = 5e-4  # 微调使用较小学习率
 SAMPLING_RATE = 200.0
 
@@ -83,7 +79,7 @@ def get_data():
     full_train_y = scipy.io.loadmat(f'{data_dir}/Train_Pure.mat')['data']
     
     # 取前20%数据
-    num_samples = int(len(full_train_x) * 0.2)
+    num_samples = int(len(full_train_x) * 0.1)
     train_x = full_train_x[:num_samples]
     train_y = full_train_y[:num_samples]
     
@@ -97,6 +93,7 @@ def get_data():
 def train_epoch(model, device, loader, optimizer):
     """
     有监督训练一个epoch
+    注意：模型在归一化尺度上训练（与预训练阶段保持一致）
     """
     model.train()
     total_loss = 0.0
@@ -104,23 +101,22 @@ def train_epoch(model, device, loader, optimizer):
     
     for noisy, clean, norm in loader:
         # 添加通道维度
-        noisy = noisy.float().unsqueeze(1).to(device)  # (B, 1, L)
-        clean = clean.float().unsqueeze(1).to(device)  # (B, 1, L)
-        
-        # 恢复原始尺度
-        norm = norm.float().to(device).view(-1, 1, 1)
-        noisy = noisy * norm
-        clean = clean * norm
+        noisy = noisy.float().unsqueeze(1).to(device)  # (B, 1, L) - 已归一化
+        clean = clean.float().unsqueeze(1).to(device)  # (B, 1, L) - 已归一化
         
         optimizer.zero_grad()
         
-        # 前向传播
+        # 前向传播（输入归一化数据）
         output = model(noisy)
         
-        # MSE损失
+        # MSE损失（在归一化尺度上计算）
         loss = F.mse_loss(output, clean)
         
         loss.backward()
+        
+        # 梯度裁剪
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        
         optimizer.step()
         
         total_loss += loss.item()
@@ -142,25 +138,24 @@ def validate(model, device, loader):
     with torch.no_grad():
         for noisy, clean, norm in loader:
             # 添加通道维度
-            noisy = noisy.float().unsqueeze(1).to(device)
-            clean_norm = clean.float().unsqueeze(1).to(device)
+            noisy = noisy.float().unsqueeze(1).to(device)  # (B, 1, L) - 已归一化
+            clean_norm = clean.float().unsqueeze(1).to(device)  # (B, 1, L) - 已归一化
             
-            # 恢复原始尺度
-            norm_t = norm.float().to(device).view(-1, 1, 1)
-            noisy = noisy * norm_t
-            clean_norm = clean_norm * norm_t
-            
-            # 前向传播
+            # 前向传播（输入归一化数据）
             output = model(noisy)
             
-            # 计算验证损失
+            # 计算验证损失（在归一化尺度上）
             loss = F.mse_loss(output, clean_norm)
             total_loss += loss.item()
             num_batches += 1
             
-            # 收集预测结果（用于计算指标）
-            all_preds.append(output.squeeze(1).cpu().numpy())
-            all_targets.append(clean.numpy() * norm.numpy().reshape(-1, 1))
+            # 恢复原始尺度（用于计算评估指标）
+            norm_t = norm.float().to(device).view(-1, 1, 1)
+            output_denorm = output * norm_t
+            
+            # 收集预测结果（原始尺度）
+            all_preds.append(output_denorm.squeeze(1).cpu().numpy())
+            all_targets.append(clean.numpy())  # clean 已经是原始尺度（未归一化）
     
     # 合并所有批次
     all_preds = np.concatenate(all_preds, axis=0)
@@ -216,7 +211,7 @@ def main():
     
     # 训练循环
     best_rrmse = float('inf')
-    patience = 50
+    patience = 1000
     patience_counter = 0
     
     print('\n开始微调...')
