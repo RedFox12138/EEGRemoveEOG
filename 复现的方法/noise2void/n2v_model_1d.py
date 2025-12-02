@@ -56,15 +56,21 @@ class EncoderBlock(nn.Module):
 
 
 class DecoderBlock(nn.Module):
-    """解码器块：上采样 + 拼接 + 两个卷积"""
-    def __init__(self, in_channels, out_channels, kernel_size=3,
+    """解码器块：上采样 + 拼接 + 两个卷积
+    
+    Args:
+        in_channels: 上采样输入的通道数
+        skip_channels: skip connection的通道数  
+        out_channels: 输出通道数
+    """
+    def __init__(self, in_channels, skip_channels, out_channels, kernel_size=3,
                  batch_norm=True, dropout=0.0, scale_factor=2):
         super(DecoderBlock, self).__init__()
         
         self.upsample = nn.Upsample(scale_factor=scale_factor, mode='linear', 
                                     align_corners=True)
-        # 上采样后拼接，所以输入通道数要翻倍
-        self.conv1 = Conv1DBlock(in_channels, out_channels, kernel_size,
+        # 上采样后拼接，输入通道数 = in_channels + skip_channels
+        self.conv1 = Conv1DBlock(in_channels + skip_channels, out_channels, kernel_size,
                                  batch_norm=batch_norm, dropout=dropout)
         self.conv2 = Conv1DBlock(out_channels, out_channels, kernel_size,
                                  batch_norm=batch_norm, dropout=dropout)
@@ -133,9 +139,23 @@ class N2V_UNet1D(nn.Module):
         # 解码器
         self.decoders = nn.ModuleList()
         for i in range(n_depth - 1, -1, -1):
-            # 输入是上一层输出+skip connection，所以是channels[i+1]*2
+            # 计算每个解码器的通道数
+            # 第一个解码器(i=n_depth-1): up_ch=256, skip_ch=128, out_ch=128
+            # 第二个解码器(i=n_depth-2): up_ch=128, skip_ch=64, out_ch=64
+            # ...
+            
+            if i == n_depth - 1:
+                # 第一个解码器，输入来自瓶颈层
+                up_ch = channels[i+1] * 2  # 瓶颈层输出
+            else:
+                # 后续解码器，输入来自上一个解码器的输出
+                up_ch = channels[i+2]  # 上一个解码器的输出通道数
+            
+            skip_ch = channels[i+1]  # skip connection的通道数
+            out_ch = channels[i+1]   # 输出通道数
+            
             self.decoders.append(
-                DecoderBlock(channels[i+1] * 2, channels[i+1], kernel_size,
+                DecoderBlock(up_ch, skip_ch, out_ch, kernel_size,
                            batch_norm, dropout)
             )
         
@@ -148,7 +168,7 @@ class N2V_UNet1D(nn.Module):
         
         # 编码路径
         skip_connections = []
-        for encoder in self.encoders:
+        for i, encoder in enumerate(self.encoders):
             skip, x = encoder(x)
             skip_connections.append(skip)
         

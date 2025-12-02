@@ -4,6 +4,8 @@ Noise2Void 1D EEG Denoising 训练脚本
 """
 import os
 import sys
+from pathlib import Path
+
 import scipy.io
 import numpy as np
 import torch
@@ -12,9 +14,13 @@ from torch.utils.data import DataLoader
 from time import time
 
 # 添加路径
-current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, current_dir)
+current_dir = Path(__file__).parent.resolve()
+sys.path.insert(0, str(current_dir))
 
+# 确保当前目录存在（处理符号链接等特殊情况）
+os.makedirs(str(current_dir), exist_ok=True)
+print(f"当前工作目录: {current_dir}")
+print(f"目录是否存在: {current_dir.exists()}")
 # 尝试导入metrics
 try:
     parent_dir = os.path.dirname(current_dir)
@@ -47,7 +53,7 @@ PATIENCE = 80
 # N2V参数
 PERC_PIX = 1.5          # 盲点百分比
 NEIGHBORHOOD_RADIUS = 5  # 邻域半径
-MANIPULATOR = 'uniform'  # 替换策略: 'uniform', 'median', 'neighbor'
+MANIPULATOR = 'uniform_withCP'  # 替换策略: 'uniform_withCP', 'uniform_withoutCP', 'median', 'normal_withoutCP'
 
 # 模型参数
 N_DEPTH = 3             # UNet深度
@@ -77,10 +83,8 @@ def train_epoch(model, device, loader, optimizer):
     num_batches = 0
     
     for batch in loader:
-        if len(batch) == 5:
-            x, y, mask, clean, norm = batch
-        else:
-            x, y, mask, norm = batch
+        # 训练集没有clean_data，所以总是4个值
+        x, y, mask, norm = batch
         
         x = x.to(device)
         y = y.to(device)
@@ -108,7 +112,7 @@ def train_epoch(model, device, loader, optimizer):
     return total_loss / max(1, num_batches)
 
 
-def validate(model, device, loader, has_clean_labels=False):
+def validate(model, device, loader):
     """验证模型"""
     model.eval()
     total_loss = 0.0
@@ -117,8 +121,15 @@ def validate(model, device, loader, has_clean_labels=False):
     all_preds = []
     all_targets = []
     
+    # 检查是否有clean标签（通过第一个batch判断）
+    has_clean_labels = False
+    first_batch = next(iter(loader))
+    if len(first_batch) == 5:
+        has_clean_labels = True
+    
     with torch.no_grad():
-        for batch in loader:
+        for batch_idx, batch in enumerate(loader):
+            # 验证集可能返回4个或5个值（取决于是否有clean_data）
             if len(batch) == 5:
                 x, y, mask, clean, norm = batch
             else:
@@ -158,6 +169,9 @@ def validate(model, device, loader, has_clean_labels=False):
 
 
 def main():
+    # 切换到脚本所在目录，避免路径问题
+    os.chdir(str(current_dir))
+    
     print('='*70)
     print('Noise2Void 1D EEG Denoising 训练')
     print('='*70)
@@ -254,8 +268,7 @@ def main():
         print(f'Train Loss: {train_loss:.6f}')
         
         # 验证
-        val_loss, val_metrics = validate(model, device, val_loader, 
-                                        has_clean_labels=(val_y is not None))
+        val_loss, val_metrics = validate(model, device, val_loader)
         print(f'Val Loss:   {val_loss:.6f}')
         
         if val_metrics is not None:
@@ -265,9 +278,10 @@ def main():
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_metrics = val_metrics
-            print(f'\n✓ 验证损失降低: {best_val_loss:.6f}')
-            torch.save(model.state_dict(), 
-                      os.path.join(current_dir, 'N2V_1D_best.pth'))
+            print(f'\n[*] 验证损失降低: {best_val_loss:.6f}')
+            # 使用相对路径保存（已切换到脚本目录）
+            save_path = 'N2V_1D_best.pth'
+            torch.save(model.state_dict(), save_path)
             patience_counter = 0
         else:
             patience_counter += 1
@@ -288,8 +302,8 @@ def main():
             break
     
     # 保存最终模型
-    torch.save(model.state_dict(), 
-              os.path.join(current_dir, 'N2V_1D_final.pth'))
+    save_path = 'N2V_1D_final.pth'
+    torch.save(model.state_dict(), save_path)
     
     print('\n' + '='*70)
     print('训练完成！')

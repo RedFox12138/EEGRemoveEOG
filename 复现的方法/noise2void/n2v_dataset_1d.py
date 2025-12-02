@@ -27,10 +27,11 @@ class N2V_Dataset1D(Dataset):
     patch_size : int
         训练时使用的patch大小，None表示使用完整序列
     manipulator : str
-        盲点值替换策略: 'uniform', 'median', 'neighbor'
+        盲点值替换策略: 'uniform_withCP', 'uniform_withoutCP', 'median', 'normal_withoutCP'
+        与N2V源码保持一致
     """
     def __init__(self, data, perc_pix=1.5, neighborhood_radius=5, 
-                 patch_size=None, manipulator='uniform', clean_data=None):
+                 patch_size=None, manipulator='uniform_withCP', clean_data=None):
         super(N2V_Dataset1D, self).__init__()
         
         self.data = data
@@ -78,9 +79,19 @@ class N2V_Dataset1D(Dataset):
         
         return np.array(coords)
     
+    def get_subpatch(self, signal, coord):
+        """
+        获取以coord为中心的子patch
+        对应源码的get_subpatch函数
+        """
+        start = max(0, coord - self.neighborhood_radius)
+        end = min(len(signal), coord + self.neighborhood_radius + 1)
+        return signal[start:end], start, end
+    
     def get_replacement_value(self, signal, coord):
         """
         根据指定策略获取用于替换盲点的值
+        严格对应N2V源码中的pm_*函数
         
         Parameters:
         -----------
@@ -89,48 +100,47 @@ class N2V_Dataset1D(Dataset):
         coord : int
             盲点位置
         """
-        if self.manipulator == 'uniform':
-            # 从邻域随机选择一个非中心点的值
-            left = max(0, coord - self.neighborhood_radius)
-            right = min(len(signal), coord + self.neighborhood_radius + 1)
+        if self.manipulator == 'uniform_withCP':
+            # pm_uniform_withCP: 从邻域随机选择（包括中心点）
+            # 对应源码：sub_patch中随机选择一个位置
+            sub_patch, start, end = self.get_subpatch(signal, coord)
+            rand_idx = np.random.randint(0, len(sub_patch))
+            return sub_patch[rand_idx]
+        
+        elif self.manipulator == 'uniform_withoutCP':
+            # pm_uniform_withoutCP: 从邻域随机选择（排除中心点）
+            sub_patch, start, end = self.get_subpatch(signal, coord)
+            # 创建掩码排除中心点
+            center_in_subpatch = coord - start
+            valid_indices = [i for i in range(len(sub_patch)) if i != center_in_subpatch]
             
-            # 创建邻域索引，排除中心点
-            neighbors = []
-            for i in range(left, right):
-                if i != coord:
-                    neighbors.append(i)
-            
-            if len(neighbors) > 0:
-                idx = np.random.choice(neighbors)
-                return signal[idx]
+            if len(valid_indices) > 0:
+                rand_idx = np.random.choice(valid_indices)
+                return sub_patch[rand_idx]
             else:
                 return signal[coord]  # fallback
         
         elif self.manipulator == 'median':
-            # 使用邻域的中位数
-            left = max(0, coord - self.neighborhood_radius)
-            right = min(len(signal), coord + self.neighborhood_radius + 1)
+            # pm_median: 使用邻域的中位数（排除中心点）
+            sub_patch, start, end = self.get_subpatch(signal, coord)
+            center_in_subpatch = coord - start
+            values = [sub_patch[i] for i in range(len(sub_patch)) if i != center_in_subpatch]
             
-            neighbors = []
-            for i in range(left, right):
-                if i != coord:
-                    neighbors.append(signal[i])
-            
-            if len(neighbors) > 0:
-                return np.median(neighbors)
+            if len(values) > 0:
+                return np.median(values)
             else:
                 return signal[coord]
         
-        elif self.manipulator == 'neighbor':
-            # 从正态分布采样选择一个邻居
+        elif self.manipulator == 'normal_withoutCP':
+            # pm_normal_withoutCP: 从正态分布采样选择邻居
+            # sigma=4 是源码中的默认值
             offset = int(np.clip(np.round(np.random.normal(0, 4)), 
                                 -self.neighborhood_radius, 
                                 self.neighborhood_radius))
             if offset == 0:
                 offset = 1 if np.random.rand() > 0.5 else -1
             
-            new_coord = coord + offset
-            new_coord = np.clip(new_coord, 0, len(signal) - 1)
+            new_coord = np.clip(coord + offset, 0, len(signal) - 1)
             return signal[new_coord]
         
         else:
@@ -185,7 +195,7 @@ class N2V_ValidationDataset1D(Dataset):
     验证集数据：预先计算所有掩蔽，加速验证过程
     """
     def __init__(self, data, perc_pix=1.5, neighborhood_radius=5,
-                 manipulator='uniform', clean_data=None):
+                 manipulator='uniform_withCP', clean_data=None):
         super(N2V_ValidationDataset1D, self).__init__()
         
         self.data = data
@@ -193,9 +203,11 @@ class N2V_ValidationDataset1D(Dataset):
         self.has_clean = clean_data is not None
         
         # 预先生成所有掩蔽版本
+        # 注意：不传入clean_data给temp_dataset，因为它只用于生成掩蔽
         temp_dataset = N2V_Dataset1D(
             data, perc_pix, neighborhood_radius, 
-            patch_size=data.shape[1], manipulator=manipulator
+            patch_size=data.shape[1], manipulator=manipulator,
+            clean_data=None  # 明确设置为None
         )
         
         print('预计算验证集掩蔽...')
@@ -205,10 +217,8 @@ class N2V_ValidationDataset1D(Dataset):
         self.norms = []
         
         for i in range(len(temp_dataset)):
-            if clean_data is not None:
-                x, y, mask, clean, norm = temp_dataset[i]
-            else:
-                x, y, mask, norm = temp_dataset[i]
+            # temp_dataset没有clean_data，所以总是返回4个值
+            x, y, mask, norm = temp_dataset[i]
             
             self.masked_inputs.append(x)
             self.targets.append(y)

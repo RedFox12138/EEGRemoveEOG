@@ -1,7 +1,7 @@
 function [pureEEG, contaminatedEEG, eogArtifact, blinkArtifact] = generateSimulatedEEG(duration_sec, targetSNREOG, targetSNRBlink, eogStrength, blinkStrength)
     % 参数设置
     fs = 250;
-    numChannels = 20000; % 10000个独立样本
+    numChannels = 16000; % 10000个独立样本
     t = 0:1/fs:duration_sec-1/fs;
     numSamples = length(t);
     
@@ -28,9 +28,9 @@ function [pureEEG, contaminatedEEG, eogArtifact, blinkArtifact] = generateSimula
         sampleType = typeIndices(ch);
         
         %% 1. 生成纯净脑电 (每个通道独立)
-        freqs = 4 + rand(6, 1) * 18; % 4-22 Hz的脑电频率
+        freqs = 4 + rand(8, 1) * 18; % 4-22 Hz的脑电频率
         channelEEG = zeros(1, numSamples);
-        for f = 1:6
+        for f = 1:8
             phase = 2 * pi * rand();
             channelEEG = channelEEG + sin(2 * pi * freqs(f) * t + phase);
         end
@@ -155,8 +155,8 @@ function [pureEEG, contaminatedEEG, eogArtifact, blinkArtifact] = generateSimula
     fprintf('  EOG+Blink:     %d (%.1f%%)\n', typeCounts(4), typeCounts(4)/numChannels*100);
     
     %% 保存数据
-    save('Pure_Data.mat', 'pureEEG');
-    save('Contaminated.mat', 'contaminatedEEG');
+    save('D:\Pycharm_Projects\EOG Remove\生成全模拟数据\已经生成好的数据\Pure_Data.mat', 'pureEEG');
+    save('D:\Pycharm_Projects\EOG Remove\生成全模拟数据\已经生成好的数据\Contaminated.mat', 'contaminatedEEG');
     
     %% 绘制结果用于验证 (每种类型显示1个样本)
     figure('Position', [100, 100, 1600, 1200]);

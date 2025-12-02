@@ -111,18 +111,15 @@ def main():
         for noisy, clean, norm in loader:
             sample_count += noisy.shape[0]
             
-            # 转换为tensor
+            # 转换为tensor（已经归一化过了）
             noisy_t = noisy.float().unsqueeze(1).to(device)  # (batch, 1, time)
-            norm_t = norm.float().view(-1, 1, 1).to(device)
-            
-            # 归一化
-            noisy_t = noisy_t * norm_t
             
             # 模型推理
             pred = model(noisy_t)
             
-            # 反归一化
+            # 反归一化到原始尺度
             pred = pred.squeeze(1).cpu().numpy()  # (batch, time)
+            pred = pred * norm.numpy()[:, None]  # 恢复原始尺度
             
             predictions.append(pred)
             targets.append(clean.numpy())

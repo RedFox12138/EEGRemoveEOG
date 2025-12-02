@@ -23,7 +23,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 BATCH_SIZE = 256  # EEGIFNet原始batch size
 LEARNING_RATE = 5e-5  # EEGIFNet原始学习率
-EPOCHS = 200  # EEGIFNet原始训练轮数
+EPOCHS = 500  # EEGIFNet原始训练轮数
 
 class EEGDataset(Dataset):
     """
