@@ -1,0 +1,108 @@
+# ============================================
+# EOG Remove 项目 Git 忽略规则
+# 只保留程序文件 (.py, .m)，忽略数据和文档
+# ============================================
+
+# ========== 数据文件 ==========
+# MATLAB 数据文件
+*.mat
+
+# NumPy 数据文件
+*.npy
+*.npz
+
+# ========== 文档文件 ==========
+# 文本文件
+*.txt
+
+# Markdown 文件 (如果要保留 README.md，可以添加例外)
+*.md
+!README.md  # 保留 README.md
+
+# Word 文档
+*.doc
+*.docx
+
+# PDF 文件
+*.pdf
+
+# ========== 模型和检查点 ==========
+# PyTorch 模型文件
+*.pth
+*.pt
+*.ckpt
+
+# TensorFlow 模型
+*.h5
+*.pb
+
+# 检查点目录
+checkpoints/
+checkpoint/
+results/
+__pycache__/
+
+# ========== 图片和可视化 ==========
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.bmp
+
+# ========== 日志文件 ==========
+*.log
+
+# ========== Python 相关 ==========
+# Python 缓存
+*.pyc
+*.pyo
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv
+
+# Jupyter Notebook 检查点
+.ipynb_checkpoints/
+
+# ========== IDE 相关 ==========
+# PyCharm
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# ========== 操作系统 ==========
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+
+# ========== 其他 ==========
+# 临时文件
+*.tmp
+*.temp
+*.swp
+*.bak
+
+# 压缩文件
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
