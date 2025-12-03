@@ -14,6 +14,9 @@ from time import time
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
+# 导入数据配置
+from data_config import *
+
 # 导入metrics
 try:
     parent_dir = os.path.dirname(current_dir)
@@ -62,9 +65,8 @@ class TestDataset(Dataset):
 
 def load_data():
     """加载测试数据"""
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
-    test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
+    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
     return test_input, test_output
 
 

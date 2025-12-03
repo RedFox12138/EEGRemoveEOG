@@ -13,9 +13,14 @@ from 复现的方法.metrics_utils import compute_all_metrics, print_metrics
 sys.path.append(r'D:\Pycharm_Projects\EOG Remove\复现的方法')
 from cbamdropout import EEGNetMorletWindowCBAMDropout
 
+# 导入数据集配置
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from data_config import *
+
 BATCH_SIZE = 200
-LEARNING_RATE = 5e-4
+LEARNING_RATE = 1e-3
 NUM_EPOCHS = 300
+MIN_LR = 5e-5  # 最小学习率
 
 
 class EEGDatasetASNetStyle(Data.Dataset):
@@ -46,13 +51,13 @@ class EEGDatasetASNetStyle(Data.Dataset):
 
 
 def load_data(data_dir):
-    train_input = scipy.io.loadmat(os.path.join(data_dir, 'Train_Contaminated.mat'))['data']
-    verify_input = scipy.io.loadmat(os.path.join(data_dir, 'Val_Contaminated.mat'))['data']
-    test_input = scipy.io.loadmat(os.path.join(data_dir, 'Test_Contaminated.mat'))['data']
+    train_input = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+    verify_input = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
+    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
 
-    train_output = scipy.io.loadmat(os.path.join(data_dir, 'Train_Pure.mat'))['data']
-    verify_output = scipy.io.loadmat(os.path.join(data_dir, 'Val_Pure.mat'))['data']
-    test_output = scipy.io.loadmat(os.path.join(data_dir, 'Test_Pure.mat'))['data']
+    train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
+    verify_output = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
+    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
 
     train_set = EEGDatasetASNetStyle(train_input, train_output, is_train=True)
     val_set = EEGDatasetASNetStyle(verify_input, verify_output, is_train=False)
@@ -126,13 +131,13 @@ def validate(model, device, loader):
     all_targets = np.concatenate(all_targets, axis=0)
     
     # 计算评价指标 (假设采样率200Hz)
-    metrics = compute_all_metrics(all_predictions, all_targets, fs=200)
+    metrics = compute_all_metrics(all_predictions, all_targets, fs=SAMPLING_RATE)
     
     return total_loss / max(1, count), metrics
 
 
 def main():
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
+    data_dir = DATA_DIR  # 从data_config导入
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     train_loader, val_loader, test_loader = load_data(data_dir)
@@ -141,6 +146,14 @@ def main():
     model.to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    
+    # 使用余弦退火学习率调度器，更温和的衰减
+    # T_max: 每个周期的epoch数, eta_min: 最小学习率
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, 
+        T_max=NUM_EPOCHS,  # 整个训练周期
+        eta_min=MIN_LR  # 最小学习率，不会降到0
+    )
 
     best_val_loss = float('inf')  # 使用验证损失作为最佳模型选择标准(越小越好)
     os.makedirs('results', exist_ok=True)
@@ -149,17 +162,22 @@ def main():
     print(f"开始训练 MicroWaveNet")
     print(f"训练轮数: {NUM_EPOCHS}")
     print(f"批次大小: {BATCH_SIZE}")
-    print(f"学习率: {LEARNING_RATE}")
+    print(f"初始学习率: {LEARNING_RATE}")
+    print(f"最小学习率: {MIN_LR}")
+    print(f"学习率策略: CosineAnnealingLR (余弦退火)")
     print(f"设备: {device}")
     print("="*60)
 
     for epoch in range(NUM_EPOCHS):
         train_loss, elapsed = train_epoch(model, device, train_loader, optimizer)
         val_loss, val_metrics = validate(model, device, val_loader)
+        
+        # 获取当前学习率
+        current_lr = optimizer.param_groups[0]['lr']
 
         print(f'\nEpoch {epoch+1}/{NUM_EPOCHS}')
         print('-'*60)
-        print(f'Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f} | Time: {elapsed:.1f}s')
+        print(f'Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f} | LR: {current_lr:.2e} | Time: {elapsed:.1f}s')
         
         # 打印验证集评价指标
         print_metrics(val_metrics, prefix="验证集")
@@ -169,6 +187,9 @@ def main():
             best_val_loss = val_loss
             torch.save(model.state_dict(), 'MicroWaveNet_best.pt')
             print(f'✓ 保存最佳模型 (Val Loss: {best_val_loss:.6f})')
+        
+        # 更新学习率
+        scheduler.step()
 
     print("\n" + "="*60)
     print('训练完成!')

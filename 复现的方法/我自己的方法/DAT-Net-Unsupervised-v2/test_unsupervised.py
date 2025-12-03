@@ -36,6 +36,9 @@ from model import DATNet
 # 导入 v2 损失（可选用于验证一致性）
 from unsupervised_artifact_v2 import unsupervised_dat_loss_artifact_v2
 
+# 导入配置
+from config import *
+
 class TestDataset(Dataset):
     def __init__(self, noisy, clean):
         self.noisy = noisy
@@ -52,10 +55,9 @@ class TestDataset(Dataset):
 
 
 def load_data():
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
-    test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
-    # 计算真实眼电伪迹（污染信号 - 纯净信号）
+    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+    # 计算真实眼电伪影（污染信号 - 纯净信号）
     test_eog = test_input - test_output
     return test_input, test_output, test_eog
 
@@ -81,9 +83,8 @@ def visualize_results(noisy, clean_pred, clean_target, eog_pred, eog_target, num
     for i, idx in enumerate(indices):
         fig, axes = plt.subplots(2, 1, figsize=(14, 8))
         
-        # 计算时间轴 (假设采样率 200Hz)
-        fs = 200
-        time_axis = np.arange(len(noisy[idx])) / fs
+        # 计算时间轴
+        time_axis = np.arange(len(noisy[idx])) / SAMPLING_RATE
         
         # 子图1: 去噪结果对比
         ax1 = axes[0]
@@ -163,8 +164,9 @@ def main():
     print('='*70)
     print('DAT-Net 无监督测试 (Version 2)')
     print('='*70)
+    print_config()  # 打印配置信息
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    print('使用设备:', device)
+    print('\n使用设备:', device)
 
     test_x, test_y, test_eog = load_data()
     print('测试集样本数:', len(test_x))
@@ -175,16 +177,14 @@ def main():
     model = DATNet(in_channels=1, base_channels=32).to(device)
     print(f'模型参数量: {model.count_parameters():,}')
 
-    model_path = 'DAT-Net-Unsupervised-v2_best.pth'
-    if os.path.exists(model_path):
-        model.load_state_dict(torch.load(model_path, map_location=device))
-        print('加载模型:', model_path)
+    if os.path.exists(MODEL_SAVE_PATH):
+        model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=device))
+        print('加载模型:', MODEL_SAVE_PATH)
     else:
-        print('⚠️ 找不到训练好的模型，尝试 final 版本...')
-        model_path = 'DAT-Net-Unsupervised-v2_final.pth'
-        if os.path.exists(model_path):
-            model.load_state_dict(torch.load(model_path, map_location=device))
-            print('加载模型:', model_path)
+        print(f'⚠️ 找不到训练好的模型 {MODEL_SAVE_PATH}，尝试 final 版本...')
+        if os.path.exists(FINAL_MODEL_PATH):
+            model.load_state_dict(torch.load(FINAL_MODEL_PATH, map_location=device))
+            print('加载模型:', FINAL_MODEL_PATH)
         else:
             print('⚠️ 找不到训练好的模型，使用随机初始化权重')
 
@@ -225,18 +225,15 @@ def main():
     print('推理完成! 单样本时间: %.3f ms' % (time_per_sample*1000))
 
     print('\n计算评价指标...')
-    metrics = compute_all_metrics(eeg_preds, targets, fs=200)
+    metrics = compute_all_metrics(eeg_preds, targets, fs=SAMPLING_RATE)
     print_metrics(metrics, prefix='测试集')
 
-    out_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
-    os.makedirs(out_dir, exist_ok=True)
-    save_path = os.path.join(out_dir, 'DAT-Net-Unsupervised-v2_predictions.mat')
-    scipy.io.savemat(save_path, {
+    scipy.io.savemat(PREDICTION_SAVE_PATH, {
         'predictions': eeg_preds,
         'eog_artifacts': eog_preds,
         'time_per_sample': time_per_sample,
     })
-    print('预测结果已保存:', save_path)
+    print('预测结果已保存:', PREDICTION_SAVE_PATH)
 
     print('\n验证解耦一致性...')
     reconstructed = eeg_preds + eog_preds

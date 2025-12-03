@@ -24,6 +24,9 @@ from 复现的方法.metrics_utils import compute_all_metrics, print_metrics
 # 添加父目录到路径以导入metrics_utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# 导入数据集配置
+from data_config import *
+
 BATCH_SIZE = 256
 LEARNING_RATE = 5e-5
 EPOCHS = 200
@@ -60,8 +63,8 @@ def get_data(data_path, batch_size):
     加载20%训练数据和验证数据
     """
     # 加载完整训练集
-    full_train_input = scipy.io.loadmat(os.path.join(data_path, 'Train_Contaminated.mat'))['data']
-    full_train_output = scipy.io.loadmat(os.path.join(data_path, 'Train_Pure.mat'))['data']
+    full_train_input = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+    full_train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
     
     # 取前20%数据
     num_samples = int(len(full_train_input) * 0.2)
@@ -205,7 +208,7 @@ def validate_epoch(I_model, M_model, device, val_loader, criterion, epoch, epoch
     # 计算统一评价指标
     all_predictions = np.concatenate(all_predictions, axis=0)
     all_targets = np.concatenate(all_targets, axis=0)
-    unified_metrics = compute_all_metrics(all_predictions, all_targets, fs=200)
+    unified_metrics = compute_all_metrics(all_predictions, all_targets, fs=SAMPLING_RATE)
 
     print(f"Epoch [{epoch+1}/{epochs}] Val - Loss: {average_val_loss:.6f}")
     print_metrics(unified_metrics, prefix="验证集")
@@ -216,7 +219,7 @@ def validate_epoch(I_model, M_model, device, val_loader, criterion, epoch, epoch
 def main():
     parser = argparse.ArgumentParser(description='EEGIFNet 20% Training')
     parser.add_argument('--data_path', type=str, 
-                        default=r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据',
+                        default=DATA_DIR,  # 从data_config导入
                         help='数据集路径')
     parser.add_argument('--batch_size', type=int, default=BATCH_SIZE, help='批大小')
     parser.add_argument('--lr', type=float, default=LEARNING_RATE, help='学习率')

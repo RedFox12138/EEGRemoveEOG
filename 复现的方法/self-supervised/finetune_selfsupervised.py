@@ -29,16 +29,18 @@ from model_selfsupervised import DenoiseEEG
 # 导入metrics
 from metrics_utils import compute_all_metrics, print_metrics
 
+# 导入数据集配置
+from data_config import *
+
 
 # ========== 超参数配置 ==========
 BATCH_SIZE = 256
 EPOCHS = 300
 LEARNING_RATE = 5e-4  # 微调使用较小学习率
-SAMPLING_RATE = 200.0
 
 # 模型配置
 INPUT_CHANNELS = 1
-SEQ_LEN = 1200
+SEQ_LEN = WINDOW_SIZE  # 使用配置中的窗口大小
 HIDDEN_DIM = 128
 
 
@@ -72,11 +74,9 @@ def get_data():
     """
     加载20%训练数据和验证数据
     """
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    
     # 加载完整训练集
-    full_train_x = scipy.io.loadmat(f'{data_dir}/Train_Contaminated.mat')['data']
-    full_train_y = scipy.io.loadmat(f'{data_dir}/Train_Pure.mat')['data']
+    full_train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+    full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
     
     # 取前20%数据
     num_samples = int(len(full_train_x) * 0.1)
@@ -84,8 +84,8 @@ def get_data():
     train_y = full_train_y[:num_samples]
     
     # 验证集
-    val_x = scipy.io.loadmat(f'{data_dir}/Val_Contaminated.mat')['data']
-    val_y = scipy.io.loadmat(f'{data_dir}/Val_Pure.mat')['data']
+    val_x = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
+    val_y = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
     
     return train_x, train_y, val_x, val_y
 

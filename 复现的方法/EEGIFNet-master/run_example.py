@@ -6,6 +6,9 @@ import os
 import subprocess
 import sys
 
+# 导入数据配置
+from data_config import *
+
 def print_section(title):
     print("\n" + "="*80)
     print(f"  {title}")
@@ -21,9 +24,9 @@ def main():
     print_section("EEGIFNet 快速运行示例")
     
     # 检查数据路径
-    data_path = r"D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据"
-    contaminated_file = os.path.join(data_path, "Contaminated.npy")
-    pure_file = os.path.join(data_path, "Pure_Data.npy")
+    data_path = DATA_DIR
+    contaminated_file = CONTAMINATED_NPY_PATH
+    pure_file = PURE_NPY_PATH
     
     print("检查数据文件...")
     if os.path.exists(contaminated_file) and os.path.exists(pure_file):

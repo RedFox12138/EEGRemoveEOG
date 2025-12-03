@@ -14,6 +14,10 @@
 
 clear; clc; close all;
 
+% 加载数据集配置
+addpath('..');
+cfg = getDatasetConfig();
+
 %% 添加路径
 addpath('D:\Pycharm_Projects\EOG Remove\复现的方法\ACMD');
 addpath('D:\Pycharm_Projects\EOG Remove\复现的方法');  % 通用metrics函数
@@ -26,11 +30,11 @@ fprintf('==============================================\n\n');
 fprintf('加载数据...\n');
 
 % 加载测试集.mat格式数据
-data_contaminated = load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Test_Contaminated.mat');
-data_clean = load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Test_Pure.mat');
+data_contaminated = load(cfg.testContaminatedPath);
+data_clean = load(cfg.testPurePath);
 
-test_contaminated = data_contaminated.data;
-test_clean = data_clean.data;
+test_contaminated = data_contaminated.(cfg.dataKey);
+test_clean = data_clean.(cfg.dataKey);
 
 num_test = size(test_contaminated, 1);
 fprintf('测试集样本数: %d\n', num_test);
@@ -40,18 +44,18 @@ fprintf('信号长度: %d\n\n', size(test_contaminated, 2));
 fprintf('估计阈值ξ...\n');
 
 % 加载训练集用于阈值估计
-data_train_contaminated = load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Train_Contaminated.mat');
-data_train_clean = load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Train_Pure.mat');
+data_train_contaminated = load(cfg.trainContaminatedPath);
+data_train_clean = load(cfg.trainPurePath);
 
-train_contaminated = data_train_contaminated.data;
-train_clean = data_train_clean.data;
+train_contaminated = data_train_contaminated.(cfg.dataKey);
+train_clean = data_train_clean.(cfg.dataKey);
 
 % 采样一部分训练数据计算阈值(避免过慢)
 n_samples_for_threshold = min(50, size(train_contaminated, 1));
 psi_clean_list = zeros(n_samples_for_threshold, 1);
 psi_contaminated_list = zeros(n_samples_for_threshold, 1);
 
-fs = 200;  % 采样率
+fs = cfg.fs;  % 采样率
 
 fprintf('  从训练集采样%d个样本估计阈值...\n', n_samples_for_threshold);
 for i = 1:n_samples_for_threshold

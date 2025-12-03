@@ -22,7 +22,8 @@ from 复现的方法.metrics_utils import compute_all_metrics, print_metrics
 
 sys.path.append(r'D:\Pycharm_Projects\EOG Remove\复现的方法')
 
-BATCH_SIZE = 200
+# 导入配置
+from config import *
 
 
 class EEGDataset(Dataset):
@@ -151,7 +152,7 @@ def verify(model, device, verify_loader):
     all_targets = np.concatenate(all_targets, axis=0)
     
     # 使用统一的评价指标计算
-    metrics = compute_all_metrics(all_predictions, all_targets, fs=200)
+    metrics = compute_all_metrics(all_predictions, all_targets, fs=SAMPLING_RATE)
     
     avg_loss = loss_epoch / step_num
     return avg_loss, metrics

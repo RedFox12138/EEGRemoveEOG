@@ -6,7 +6,7 @@
 2. 自动扫描 results 文件夹下所有 .mat 文件
 3. 提取文件名第一个 "_" 之前的内容作为方法名
 4. 计算 RRMSE, CC, RRMSE_PSD, MI 指标
-5. 保存结果到CSV：使用 "Mean ± Std" 格式，保留3位小数
+5. 保存结果到CSV：使用 "Mean ± Std" 格式，保疙3位小数
 6. 生成对比图
 
 修改内容：CSV格式调整 (Mean ± Std)
@@ -18,6 +18,10 @@ import glob
 import numpy as np
 import scipy.io as sio
 from scipy.signal import welch
+
+# 导入数据集配置
+from dataset_config import get_dataset_config
+DATA_CONFIG = get_dataset_config()
 import pandas as pd
 import matplotlib.pyplot as plt
 from typing import Dict, Tuple
@@ -98,13 +102,13 @@ def compute_metrics_for_method(predictions: np.ndarray, true_signals: np.ndarray
     return metrics
 
 
-def load_test_data(data_dir: str) -> np.ndarray:
+def load_test_data() -> np.ndarray:
     """加载测试集的真实纯净信号"""
-    pure_path = os.path.join(data_dir, 'Test_Pure.mat')
+    pure_path = DATA_CONFIG['test_pure_path']
     if not os.path.exists(pure_path):
         raise FileNotFoundError(f"找不到测试集文件: {pure_path}")
     data = sio.loadmat(pure_path)
-    pure_signals = data['data']
+    pure_signals = data[DATA_CONFIG['data_key']]
     print(f"✓ 已加载基准测试集 (Test_Pure.mat): {pure_signals.shape}")
     return pure_signals
 
@@ -285,7 +289,6 @@ def main():
     print("="*80)
 
     # ---------------- 配置路径 ----------------
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
     results_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
     # ----------------------------------------
 
@@ -295,7 +298,7 @@ def main():
 
     # 1. 加载测试集
     try:
-        true_signals = load_test_data(data_dir)
+        true_signals = load_test_data()
     except FileNotFoundError as e:
         print(e)
         return

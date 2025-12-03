@@ -32,6 +32,9 @@ sys.path.append(os.path.dirname(os.path.dirname(current_dir)))
 
 from model import DATNet
 
+# 导入配置
+from config import *
+
 # 导入metrics
 try:
     root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
@@ -42,11 +45,10 @@ except Exception:
     def print_metrics(m, prefix=""): pass
 
 
-# ========== 超参数配置 ==========
-BATCH_SIZE = 256
-SAMPLING_RATE = 200.0
-#
-# # ========== 微调阶段：分层学习率 ==========
+# ========== 微调超参数 ==========
+# BATCH_SIZE, SAMPLING_RATE 等基本配置从 config.py 导入
+
+# ========== 微调阶段：分层学习率 ==========
 STAGE2_EPOCHS = 10000
 # STAGE2_LR_ENCODER = 1e-4     # Encoder慢速微调
 # STAGE2_LR_BOTTLENECK = 3e-3  # Bottleneck中速
@@ -92,11 +94,9 @@ class SupervisedDataset(Dataset):
 
 def get_data():
     """加载20%训练数据和验证数据"""
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    
     # 加载完整训练集
-    full_train_x = scipy.io.loadmat(f'{data_dir}/Train_Contaminated.mat')['data']
-    full_train_y = scipy.io.loadmat(f'{data_dir}/Train_Pure.mat')['data']
+    full_train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+    full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
     
     # 取前20%数据
     num_samples = int(len(full_train_x) * 0.3)
@@ -112,9 +112,8 @@ def get_data():
 
 def get_test_data():
     """加载测试数据"""
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    test_x = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
-    test_y = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
+    test_x = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+    test_y = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
     return test_x, test_y
 
 

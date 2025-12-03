@@ -12,6 +12,9 @@ from time import time
 from torch.utils.data import Dataset
 from ASNet import ASNet
 
+# 导入配置
+from config import *
+
 BATCH_SIZE = 50
 
 class EEGDataset(Dataset):
@@ -43,10 +46,8 @@ class EEGDataset(Dataset):
 
 def load_test_data():
     """加载测试数据"""
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    
-    test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
-    test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
+    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
     
     test_dataset = EEGDataset(test_input, test_output, is_train=False)
     test_loader = Data.DataLoader(

@@ -19,6 +19,10 @@ parent_dir = os.path.dirname(current_dir)
 datnet_dir = os.path.join(parent_dir, 'DAT-Net')
 if os.path.isdir(datnet_dir):
     sys.path.insert(0, datnet_dir)
+
+# 导入数据配置
+from config import *
+    sys.path.insert(0, datnet_dir)
 sys.path.insert(0, current_dir)
 sys.path.append(os.path.dirname(os.path.dirname(current_dir)))
 
@@ -65,10 +69,8 @@ class SupervisedDataset(Dataset):
 
 def get_data():
     """加载20%训练数据和验证数据"""
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    
-    full_train_x = scipy.io.loadmat(f'{data_dir}/Train_Contaminated.mat')['data']
-    full_train_y = scipy.io.loadmat(f'{data_dir}/Train_Pure.mat')['data']
+    full_train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+    full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
     
     # 取前20%数据
     num_samples = int(len(full_train_x) * 0.2)

@@ -6,6 +6,9 @@ import numpy as np
 import scipy.io
 sys.path.append(r'D:\Pycharm_Projects\EOG Remove\复现的方法')
 
+# 导入数据集配置
+from data_config import *
+
 # 测试数据集类
 from torch.utils.data import Dataset
 
@@ -57,10 +60,9 @@ print("="*80)
 print("测试数据加载一致性")
 print("="*80)
 
-# 加载测试数据
-data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
-test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
+# 加载测试数据（使用配置中的路径）
+test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
 
 print(f"\n原始数据形状:")
 print(f"  Contaminated: {test_input.shape}")

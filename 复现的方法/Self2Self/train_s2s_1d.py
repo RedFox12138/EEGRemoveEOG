@@ -16,6 +16,9 @@ from time import time
 current_dir = Path(__file__).parent.resolve()
 sys.path.insert(0, str(current_dir))
 
+# 导入数据配置
+from data_config import *
+
 # 确保当前目录存在（处理符号链接等特殊情况）
 current_dir.mkdir(parents=True, exist_ok=True)
 
@@ -92,11 +95,10 @@ class EEGDataset(Dataset):
 
 def get_data():
     """加载训练和验证数据"""
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    train_x = scipy.io.loadmat(f'{data_dir}/Train_Contaminated.mat')['data']
-    val_x = scipy.io.loadmat(f'{data_dir}/Val_Contaminated.mat')['data']
+    train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+    val_x = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
     try:
-        val_y = scipy.io.loadmat(f'{data_dir}/Val_Pure.mat')['data']
+        val_y = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
     except Exception:
         val_y = None
     return train_x, val_x, val_y

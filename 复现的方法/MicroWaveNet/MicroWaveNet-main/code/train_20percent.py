@@ -21,6 +21,10 @@ from 复现的方法.metrics_utils import compute_all_metrics, print_metrics
 sys.path.append(r'D:\Pycharm_Projects\EOG Remove\复现的方法')
 from cbamdropout import EEGNetMorletWindowCBAMDropout
 
+# 导入数据集配置
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from data_config import *
+
 BATCH_SIZE = 200
 LEARNING_RATE = 5e-4
 NUM_EPOCHS = 300
@@ -56,8 +60,8 @@ class EEGDatasetASNetStyle(Data.Dataset):
 def load_data(data_dir):
     """加载20%训练数据和验证数据"""
     # 加载完整训练集
-    full_train_input = scipy.io.loadmat(os.path.join(data_dir, 'Train_Contaminated.mat'))['data']
-    full_train_output = scipy.io.loadmat(os.path.join(data_dir, 'Train_Pure.mat'))['data']
+    full_train_input = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+    full_train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
     
     # 取前20%数据
     num_samples = int(len(full_train_input) * 0.2)
@@ -65,8 +69,8 @@ def load_data(data_dir):
     train_output = full_train_output[:num_samples]
     
     # 验证集
-    verify_input = scipy.io.loadmat(os.path.join(data_dir, 'Val_Contaminated.mat'))['data']
-    verify_output = scipy.io.loadmat(os.path.join(data_dir, 'Val_Pure.mat'))['data']
+    verify_input = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
+    verify_output = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
 
     print(f'训练数据（20%）: {train_input.shape}')
     print(f'验证数据: {verify_input.shape}')
@@ -141,13 +145,13 @@ def validate(model, device, loader):
     all_targets = np.concatenate(all_targets, axis=0)
     
     # 计算评价指标
-    metrics = compute_all_metrics(all_predictions, all_targets, fs=200)
+    metrics = compute_all_metrics(all_predictions, all_targets, fs=SAMPLING_RATE)
     
     return total_loss / max(1, count), metrics
 
 
 def main():
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
+    data_dir = DATA_DIR  # 从data_config导入
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     train_loader, val_loader = load_data(data_dir)

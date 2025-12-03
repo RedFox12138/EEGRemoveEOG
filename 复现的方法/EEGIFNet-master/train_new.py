@@ -21,9 +21,12 @@ from 复现的方法.metrics_utils import compute_all_metrics, print_metrics
 # 添加父目录到路径以导入metrics_utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# 导入数据集配置
+from data_config import *
+
 BATCH_SIZE = 256  # EEGIFNet原始batch size
-LEARNING_RATE = 5e-5  # EEGIFNet原始学习率
-EPOCHS = 500  # EEGIFNet原始训练轮数
+LEARNING_RATE = 1e-3  # EEGIFNet原始学习率
+EPOCHS = 2000  # EEGIFNet原始训练轮数
 
 class EEGDataset(Dataset):
     """
@@ -60,13 +63,14 @@ def get_data(data_path, batch_size):
     加载数据并创建DataLoader
     """
     # 加载已经分割好的数据集（80% 训练, 10% 验证, 10% 测试）
-    train_input = scipy.io.loadmat(os.path.join(data_path, 'Train_Contaminated.mat'))['data']
-    verify_input = scipy.io.loadmat(os.path.join(data_path, 'Val_Contaminated.mat'))['data']
-    test_input = scipy.io.loadmat(os.path.join(data_path, 'Test_Contaminated.mat'))['data']
+    # 使用配置文件中的路径
+    train_input = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+    verify_input = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
+    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
     
-    train_output = scipy.io.loadmat(os.path.join(data_path, 'Train_Pure.mat'))['data']
-    verify_output = scipy.io.loadmat(os.path.join(data_path, 'Val_Pure.mat'))['data']
-    test_output = scipy.io.loadmat(os.path.join(data_path, 'Test_Pure.mat'))['data']
+    train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
+    verify_output = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
+    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
     
     print(f"加载数据: 训练集={train_input.shape}, 验证集={verify_input.shape}, 测试集={test_input.shape}")
     print(f"时间点数量: {train_input.shape[1]}")
@@ -262,7 +266,7 @@ def validate_epoch(I_model, M_model, device, val_loader, criterion, epoch, epoch
     # 计算统一评价指标
     all_predictions = np.concatenate(all_predictions, axis=0)
     all_targets = np.concatenate(all_targets, axis=0)
-    unified_metrics = compute_all_metrics(all_predictions, all_targets, fs=200)
+    unified_metrics = compute_all_metrics(all_predictions, all_targets, fs=SAMPLING_RATE)
 
     print(f"Epoch [{epoch+1}/{epochs}] Val - Loss: {average_val_loss:.6f}")
     print(f"  [Normalized] ACC_e: {acc_e:.4f}, RRMSE_e: {rrmse_e:.4f}")
@@ -279,7 +283,7 @@ def validate_epoch(I_model, M_model, device, val_loader, criterion, epoch, epoch
 def main():
     parser = argparse.ArgumentParser(description='EEGIFNet Training with ASNet Dataset')
     parser.add_argument('--data_path', type=str, 
-                        default=r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据',
+                        default=DATA_DIR,  # 从data_config导入
                         help='数据集路径')
     parser.add_argument('--batch_size', type=int, default=BATCH_SIZE, help='批大小')
     parser.add_argument('--lr', type=float, default=LEARNING_RATE, help='学习率')
@@ -315,11 +319,22 @@ def main():
     optimizer_I = torch.optim.RMSprop(I_model.parameters(), lr=args.lr, alpha=0.9)
     optimizer_M = torch.optim.RMSprop(M_model.parameters(), lr=args.lr, alpha=0.9)
 
+    # 学习率调度器 - ReduceLROnPlateau，最多衰减到原始学习率的1/10
+    scheduler_I = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer_I, mode='min', factor=0.5, patience=20, 
+        min_lr=args.lr * 0.1, verbose=True
+    )
+    scheduler_M = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer_M, mode='min', factor=0.5, patience=20, 
+        min_lr=args.lr * 0.1, verbose=True
+    )
+
     # 损失函数
     criterion = nn.MSELoss()
 
     # 训练
     print("开始训练...")
+    print(f"初始学习率: {args.lr}, 最小学习率: {args.lr * 0.1}")
     best_val_loss = float('inf')
     best_acc = 0
     begin_time = time()
@@ -332,6 +347,14 @@ def main():
         # 验证
         val_loss, val_acc, val_rrmse = validate_epoch(I_model, M_model, device, 
                                                        val_loader, criterion, epoch, args.epochs)
+
+        # 学习率调度 - 基于验证loss调整
+        scheduler_I.step(val_loss)
+        scheduler_M.step(val_loss)
+        
+        # 获取当前学习率
+        current_lr_I = optimizer_I.param_groups[0]['lr']
+        current_lr_M = optimizer_M.param_groups[0]['lr']
 
         # 保存最佳模型
         if val_loss < best_val_loss:
@@ -355,6 +378,7 @@ def main():
         minute = int(elapsed_time // 60)
         second = int(elapsed_time % 60)
         print(f"  >> 用时: {minute}m {second}s, 最佳验证Loss: {best_val_loss:.6f}, 最佳ACC: {best_acc:.4f}")
+        print(f"  >> 当前学习率: I_Net={current_lr_I:.2e}, M_Net={current_lr_M:.2e}")
         print('-' * 80)
 
     print("训练完成!")

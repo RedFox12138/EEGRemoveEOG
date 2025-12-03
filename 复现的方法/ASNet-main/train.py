@@ -13,7 +13,8 @@ from 复现的方法.metrics_utils import compute_all_metrics, print_metrics
 
 sys.path.append(r'D:\Pycharm_Projects\EOG Remove\复现的方法')
 
-BATCH_SIZE = 200
+# 导入配置
+from config import *
 
 class EEGDataset(Dataset):
     def __init__(self, noisy_signals, clean_signals, is_train=False):
@@ -44,15 +45,13 @@ class EEGDataset(Dataset):
 
 def get_data():
     # 加载已经分割好的数据集（80% 训练, 10% 验证, 10% 测试）
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
+    train_input = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+    verify_input = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
+    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
     
-    train_input = scipy.io.loadmat(f'{data_dir}/Train_Contaminated.mat')['data']
-    verify_input = scipy.io.loadmat(f'{data_dir}/Val_Contaminated.mat')['data']
-    test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
-    
-    train_output = scipy.io.loadmat(f'{data_dir}/Train_Pure.mat')['data']
-    verify_output = scipy.io.loadmat(f'{data_dir}/Val_Pure.mat')['data']
-    test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
+    train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
+    verify_output = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
+    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
 
     train_dataset = EEGDataset(train_input, train_output, is_train=True)
     verify_dataset = EEGDataset(verify_input, verify_output, is_train=False)
@@ -143,7 +142,7 @@ def verify(model, device, verify_loader):
     all_targets = np.concatenate(all_targets, axis=0)
     
     # 使用统一的评价指标计算
-    metrics = compute_all_metrics(all_predictions, all_targets, fs=200)
+    metrics = compute_all_metrics(all_predictions, all_targets, fs=SAMPLING_RATE)
     
     avg_loss = loss_epoch / step_num
     return avg_loss, metrics
@@ -162,7 +161,7 @@ model.to(device)
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # 训练配置
-NUM_EPOCHS = 100
+NUM_EPOCHS = 500
 best_val_loss = float('inf')  # 使用验证损失作为最佳模型选择标准(越小越好)
 best_model_path = f'{model_name}_best.pkl'
 

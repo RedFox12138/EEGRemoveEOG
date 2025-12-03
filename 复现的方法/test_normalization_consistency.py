@@ -14,6 +14,10 @@ sys.path.append(r'D:\Pycharm_Projects\EOG Remove\复现的方法\我自己的方
 
 from torch.utils.data import Dataset, DataLoader
 
+# 导入数据集配置
+from dataset_config import get_dataset_config
+DATA_CONFIG = get_dataset_config()
+
 # 三种方法的数据集类（应该完全一致）
 class TestDataset(Dataset):
     def __init__(self, noisy_signals, clean_signals):
@@ -41,9 +45,8 @@ def test_normalization_logic():
     print("="*80)
     
     # 加载测试数据
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data'][:10]  # 只取10个样本测试
-    test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data'][:10]
+    test_input = scipy.io.loadmat(DATA_CONFIG['test_contaminated_path'])[DATA_CONFIG['data_key']][:10]  # 只取10个样本测试
+    test_output = scipy.io.loadmat(DATA_CONFIG['test_pure_path'])[DATA_CONFIG['data_key']][:10]
     
     print(f"\n数据形状: {test_input.shape}")
     

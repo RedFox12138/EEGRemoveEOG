@@ -25,6 +25,9 @@ from utils_selfsupervised import get_pearson_correlation, get_snr, trrmse_metric
 # 导入metrics
 from metrics_utils import compute_all_metrics, print_metrics
 
+# 导入数据集配置
+from data_config import *
+
 
 # ========== 超参数配置（与原始Self-Supervised一致）==========
 BATCH_SIZE = 128
@@ -260,14 +263,12 @@ def get_data():
     加载数据（与DAT-Net-v2一致）
 
     """
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    
     # 训练集只需要污染数据（自监督）
-    train_x = scipy.io.loadmat(f'{data_dir}/Train_Contaminated.mat')['data']
+    train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
     
     # 验证集需要干净标签（用于评估）
-    val_x = scipy.io.loadmat(f'{data_dir}/Val_Contaminated.mat')['data']
-    val_y = scipy.io.loadmat(f'{data_dir}/Val_Pure.mat')['data']
+    val_x = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
+    val_y = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
     
     return train_x, val_x, val_y
 

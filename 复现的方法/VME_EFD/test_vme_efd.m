@@ -12,7 +12,11 @@
 % 作者: GitHub Copilot
 % 日期: 2025-11-03
 
-% clear; clc; 
+% clear; clc;
+
+% 加载数据集配置
+addpath('..');
+cfg = getDatasetConfig(); 
 close all;
 
 %% 添加路径
@@ -27,11 +31,11 @@ fprintf('==============================================\n\n');
 
 fprintf('加载数据...\n');
 
-data_contaminated = load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Test_Contaminated.mat');
-data_clean = load('D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Test_Pure.mat');
+data_contaminated = load(cfg.testContaminatedPath);
+data_clean = load(cfg.testPurePath);
 
-test_contaminated = data_contaminated.data;
-test_clean = data_clean.data;
+test_contaminated = data_contaminated.(cfg.dataKey);
+test_clean = data_clean.(cfg.dataKey);
 
 num_test = size(test_contaminated, 1);
 fprintf('测试集样本数: %d\n', num_test);
@@ -40,7 +44,7 @@ fprintf('信号长度: %d\n\n', size(test_contaminated, 2));
 %% 运行VME-EFD去噪
 fprintf('开始VME-EFD去噪...\n');
 
-fs = 200;
+fs = cfg.fs;
 predictions = zeros(size(test_contaminated));
 
 % 使用固定的最优参数

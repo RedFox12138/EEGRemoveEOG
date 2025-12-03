@@ -37,8 +37,8 @@ class EEGDatasetASNetStyle(Data.Dataset):
 
 
 def load_test_data(data_dir):
-    test_input = scipy.io.loadmat(os.path.join(data_dir, 'Test_Contaminated.mat'))['data']
-    test_output = scipy.io.loadmat(os.path.join(data_dir, 'Test_Pure.mat'))['data']
+    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
 
     test_set = EEGDatasetASNetStyle(test_input, test_output, is_train=False)
     test_loader = Data.DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
@@ -78,7 +78,7 @@ def test_model(model, device, test_loader):
 
 
 def main():
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
+    data_dir = DATA_DIR  # 从data_config导入
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     test_loader, test_targets = load_test_data(data_dir)

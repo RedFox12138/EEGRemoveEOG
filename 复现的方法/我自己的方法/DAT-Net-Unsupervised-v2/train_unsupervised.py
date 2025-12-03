@@ -23,6 +23,9 @@ sys.path.append(os.path.dirname(os.path.dirname(current_dir)))
 from model import DATNet
 from unsupervised_artifact_v2 import unsupervised_dat_loss_artifact_v2
 
+# 导入配置
+from config import *
+
 # 可选metrics导入
 try:
     root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
@@ -31,43 +34,6 @@ try:
 except Exception:
     def compute_all_metrics(pred, target, fs): return {}
     def print_metrics(m, prefix=""): pass
-
-
-# ========== 超参数配置 ==========
-BATCH_SIZE = 256
-EPOCHS = 1500
-LEARNING_RATE = 0.0090  # 调优后的学习率
-WEIGHT_DECAY = 1e-5
-SAMPLING_RATE = 200.0
-
-USE_LR_SCHEDULER = True
-WARMUP_EPOCHS = 50
-MIN_LR = 1e-3  # 最小学习率 0.0001
-
-GRAD_CLIP = 1.0
-PATIENCE = 150
-
-# loss weights (v2 specific names) - 调优后的最优参数
-LAMBDA_REC = 0.7864
-LAMBDA_CON = 1.5586
-LAMBDA_TEACHER = 0.1804
-LAMBDA_N2V = 0.3515
-LAMBDA_BAND = 0.4997
-LAMBDA_LOW = 0.0290
-LAMBDA_DECOR = 0.2217
-LAMBDA_CONTENT = 0.1662
-
-# Artifact-aware 掩蔽参数
-MASK_BASE = 0.0633
-BOOST_SCALE = 0.1334
-GAMMA_ART_WEIGHT = 0.6339
-
-# 内部算法参数
-ARTIFACT_WIN_SIZE = 82  # compute_artifact_prob的窗口大小
-MASK_NEIGHBORHOOD = 5  # N2V掩蔽的邻域半径
-TEACHER_CUTOFF = 4.6188  # teacher信号分离的高通截止频率
-LOWPASS_CUTOFF = 2.7216  # 伪影检测的低频截止频率
-TEACHER_THRESHOLD = 0.7651  # teacher损失应用的阈值
 
 
 class UnsupervisedEEGDataset(Dataset):
@@ -92,11 +58,10 @@ class UnsupervisedEEGDataset(Dataset):
 
 
 def get_data():
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    train_x = scipy.io.loadmat(f'{data_dir}/Train_Contaminated.mat')['data']
-    val_x = scipy.io.loadmat(f'{data_dir}/Val_Contaminated.mat')['data']
+    train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+    val_x = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
     try:
-        val_y = scipy.io.loadmat(f'{data_dir}/Val_Pure.mat')['data']
+        val_y = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
     except Exception:
         val_y = None
     return train_x, val_x, val_y
@@ -226,8 +191,9 @@ def main():
     print('='*70)
     print('DAT-Net 无监督训练 (Version 2)')
     print('='*70)
+    print_config()  # 打印配置信息
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    print('使用设备:', device)
+    print('\n使用设备:', device)
 
     train_x, val_x, val_y = get_data()
     print('训练集:', train_x.shape)
@@ -285,7 +251,7 @@ def main():
             best_val_loss = val_loss['total']
             improved = True
             print(f'\n✓ 验证损失降低: {best_val_loss:.6f}')
-            torch.save(model.state_dict(), 'DAT-Net-Unsupervised-v2_best.pth')
+            torch.save(model.state_dict(), MODEL_SAVE_PATH)
             patience_counter = 0
         else:
             patience_counter += 1
@@ -301,8 +267,9 @@ def main():
             print(f'\n早停触发！{PATIENCE} 个epoch内无改善。')
             break
 
-    torch.save(model.state_dict(), 'DAT-Net-Unsupervised-v2_final.pth')
-    print('训练完成，模型已保存。')
+    torch.save(model.state_dict(), FINAL_MODEL_PATH)
+    print(f'训练完成，模型已保存到: {MODEL_SAVE_PATH}')
+    print(f'最终模型已保存到: {FINAL_MODEL_PATH}')
 
 
 if __name__ == '__main__':

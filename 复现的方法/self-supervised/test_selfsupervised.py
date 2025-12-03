@@ -22,11 +22,13 @@ from model_selfsupervised import DenoiseEEG
 # 导入metrics
 from metrics_utils import compute_all_metrics, print_metrics
 
+# 导入数据集配置
+from data_config import *
+
 
 # ========== 配置 ==========
-SAMPLING_RATE = 200.0
 INPUT_CHANNELS = 1
-SEQ_LEN = 1200
+SEQ_LEN = WINDOW_SIZE  # 使用配置中的窗口大小
 HIDDEN_DIM = 128
 
 
@@ -54,9 +56,8 @@ def load_data():
     """
     加载测试数据
     """
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
-    test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
+    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
     return test_input, test_output
 
 

@@ -48,9 +48,9 @@ class TestDataset(Dataset):
 
 def load_data():
     """加载测试数据"""
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
-    test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
+    # 使用配置中的路径
+    test_x = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+    test_y = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
     return test_input, test_output
 
 
@@ -135,7 +135,7 @@ def main():
     
     # 计算评价指标
     print('\n计算评价指标...')
-    metrics = compute_all_metrics(predictions, targets, fs=200)
+    metrics = compute_all_metrics(predictions, targets, fs=SAMPLING_RATE)
     print_metrics(metrics, prefix='测试集')
     
     # 保存结果

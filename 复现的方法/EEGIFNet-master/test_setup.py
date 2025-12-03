@@ -9,6 +9,9 @@ import os
 # 添加路径
 sys.path.insert(0, os.path.dirname(__file__))
 
+# 导入数据配置
+from data_config import *
+
 from EEGIFNet_1200 import MA_INet, MA_MNet, weights_init
 
 def test_network():
@@ -65,11 +68,9 @@ def test_data_loading():
     print("测试数据加载")
     print("="*80)
     
-    data_path = r"D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据"
-    
     try:
-        contaminated = np.load(os.path.join(data_path, 'Contaminated.npy'), allow_pickle=True)
-        pure = np.load(os.path.join(data_path, 'Pure_Data.npy'), allow_pickle=True)
+        contaminated = np.load(CONTAMINATED_NPY_PATH, allow_pickle=True)
+        pure = np.load(PURE_NPY_PATH, allow_pickle=True)
         
         print(f"✓ Contaminated shape: {contaminated.shape}")
         print(f"✓ Pure shape: {pure.shape}")

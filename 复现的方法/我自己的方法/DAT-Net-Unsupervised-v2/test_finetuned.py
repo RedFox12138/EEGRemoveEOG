@@ -22,6 +22,9 @@ sys.path.append(os.path.dirname(os.path.dirname(current_dir)))
 
 from model import DATNet
 
+# 导入配置
+from config import *
+
 # 导入metrics
 try:
     root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
@@ -62,9 +65,8 @@ class SupervisedDataset(Dataset):
 
 def get_test_data():
     """加载测试数据"""
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    test_x = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
-    test_y = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
+    test_x = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+    test_y = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
     return test_x, test_y
 
 

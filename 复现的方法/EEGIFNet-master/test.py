@@ -9,6 +9,9 @@ from EEGIFNet_1200 import MA_INet, MA_MNet
 import os
 from time import time
 
+# 导入数据配置
+from data_config import *
+
 
 class EEGDataset(Dataset):
     def __init__(self, noisy_signals, clean_signals):
@@ -34,8 +37,8 @@ class EEGDataset(Dataset):
 
 def load_test_data():
     """加载测试数据"""
-    raw_eeg = np.load(r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Contaminated.npy')
-    clean_eeg = np.load(r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据\Pure_Data.npy')
+    raw_eeg = np.load(CONTAMINATED_NPY_PATH)
+    clean_eeg = np.load(PURE_NPY_PATH)
     
     # 测试集 (最后10%)
     num_samples = len(raw_eeg)

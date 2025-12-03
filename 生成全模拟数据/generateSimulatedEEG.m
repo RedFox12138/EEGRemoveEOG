@@ -1,7 +1,7 @@
 function [pureEEG, contaminatedEEG, eogArtifact, blinkArtifact] = generateSimulatedEEG(duration_sec, targetSNREOG, targetSNRBlink, eogStrength, blinkStrength)
     % 参数设置
     fs = 250;
-    numChannels = 16000; % 10000个独立样本
+    numChannels = 4000; % 4000个独立样本
     t = 0:1/fs:duration_sec-1/fs;
     numSamples = length(t);
     

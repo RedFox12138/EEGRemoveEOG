@@ -16,6 +16,10 @@ from scipy.signal import welch
 from sklearn.metrics import mutual_info_score
 import pandas as pd
 
+# 导入数据集配置
+from dataset_config import get_dataset_config
+DATA_CONFIG = get_dataset_config()
+
 
 def compute_rrmse(true_signal, pred_signal):
     """相对均方根误差"""
@@ -144,11 +148,10 @@ def load_mat_result(mat_path):
 def main():
     # 路径配置
     results_dir = 'results'
-    data_dir = '../生成半模拟数据/已经生成好的数据'
     
     # 加载真实数据
     print("加载真实数据...")
-    true_data = sio.loadmat(os.path.join(data_dir, 'Test_Pure.mat'))
+    true_data = sio.loadmat(DATA_CONFIG['test_pure_path'])
     
     # 尝试不同的变量名
     possible_names = ['Pure_Data', 'pure', 'clean', 'y_clean', 'test_pure']

@@ -27,6 +27,8 @@ except Exception:
     def print_metrics(m, prefix=""):
         print(prefix, 'Metrics:', m)
 
+# 导入数据集配置
+from data_config import *
 
 # ========== 配置 ==========
 SAMPLING_RATE = 200.0
@@ -59,9 +61,8 @@ def load_data():
     """
     加载测试数据
     """
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
-    test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
+    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
     return test_input, test_output
 
 

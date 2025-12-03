@@ -16,6 +16,9 @@ from time import time
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
+# 导入数据配置
+from data_config import *
+
 # 导入metrics
 try:
     parent_dir = os.path.dirname(current_dir)
@@ -77,11 +80,9 @@ class SupervisedDataset(Dataset):
 
 def get_data():
     """加载部分训练数据和验证数据"""
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    
     # 加载完整训练集
-    full_train_x = scipy.io.loadmat(f'{data_dir}/Train_Contaminated.mat')['data']
-    full_train_y = scipy.io.loadmat(f'{data_dir}/Train_Pure.mat')['data']
+    full_train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+    full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
     
     # 取前20%数据用于微调
     num_samples = int(len(full_train_x) * FINETUNE_RATIO)
@@ -89,8 +90,8 @@ def get_data():
     train_y = full_train_y[:num_samples]
     
     # 验证集
-    val_x = scipy.io.loadmat(f'{data_dir}/Val_Contaminated.mat')['data']
-    val_y = scipy.io.loadmat(f'{data_dir}/Val_Pure.mat')['data']
+    val_x = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
+    val_y = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
     
     return train_x, train_y, val_x, val_y
 

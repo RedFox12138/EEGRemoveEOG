@@ -15,6 +15,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from time import time
 
+# 导入数据集配置
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from data_config import *
+
 
 def test_model(I_model, M_model, device, test_loader):
     """
@@ -222,7 +227,7 @@ def visualize_results(I_model, M_model, device, test_loader, save_dir, num_sampl
 def main():
     parser = argparse.ArgumentParser(description='EEGIFNet Testing with ASNet Dataset')
     parser.add_argument('--data_path', type=str, 
-                        default=r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据',
+                        default=DATA_DIR,  # 从data_config导入
                         help='数据集路径')
     parser.add_argument('--batch_size', type=int, default=256, help='批大小')
     parser.add_argument('--device', type=str, default='cuda:0', help='使用的设备')
