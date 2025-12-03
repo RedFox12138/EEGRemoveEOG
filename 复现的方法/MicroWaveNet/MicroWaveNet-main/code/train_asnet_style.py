@@ -18,9 +18,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from data_config import *
 
 BATCH_SIZE = 200
-LEARNING_RATE = 1e-3
-NUM_EPOCHS = 300
-MIN_LR = 5e-5  # 最小学习率
+LEARNING_RATE = 1e-3  # 原始代码默认学习率 1e-3
+NUM_EPOCHS = 1000
+MIN_LR = 5e-5  # OneCycleLR的最小学习率
+PATIENCE = 100  # Early stopping patience
 
 
 class EEGDatasetASNetStyle(Data.Dataset):
@@ -70,7 +71,7 @@ def load_data(data_dir):
     return train_loader, val_loader, test_loader
 
 
-def train_epoch(model, device, loader, optimizer):
+def train_epoch(model, device, loader, optimizer, scheduler):
     model.train()
     total_loss = 0.0
     count = 0
@@ -92,6 +93,9 @@ def train_epoch(model, device, loader, optimizer):
         eegrec, artefactrec, mim, wvl, loss = model.loss(f_restored, clean.to(device), clean.to(device))
         loss.backward()
         optimizer.step()
+        
+        # ⚠️ 关键：OneCycleLR需要每个batch都调用step()
+        scheduler.step()
 
         total_loss += loss.item()
         count += 1
@@ -147,29 +151,40 @@ def main():
 
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     
-    # 使用余弦退火学习率调度器，更温和的衰减
-    # T_max: 每个周期的epoch数, eta_min: 最小学习率
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+    # ⚠️ 使用OneCycleLR调度器，与原始代码一致
+    # 原始设置: max_lr=startlr, pct_start=0.3, final_div_factor=1e3
+    # 这意味着学习率会从很小的值warm-up到max_lr，然后降到max_lr/1000
+    batches_per_epoch = len(train_loader)
+    scheduler = optim.lr_scheduler.OneCycleLR(
         optimizer, 
-        T_max=NUM_EPOCHS,  # 整个训练周期
-        eta_min=MIN_LR  # 最小学习率，不会降到0
+        max_lr=LEARNING_RATE,  # 最大学习率
+        total_steps=batches_per_epoch * NUM_EPOCHS,  # 总步数
+        pct_start=0.3,  # warm-up阶段占比30%
+        anneal_strategy='cos',  # 余弦退火
+        final_div_factor=1e3,  # 最终学习率 = max_lr / 1e3
+        div_factor=25  # 初始学习率 = max_lr / 25
     )
 
     best_val_loss = float('inf')  # 使用验证损失作为最佳模型选择标准(越小越好)
+    epochs_no_improve = 0  # Early stopping计数器
     os.makedirs('results', exist_ok=True)
     
     print("="*60)
     print(f"开始训练 MicroWaveNet")
     print(f"训练轮数: {NUM_EPOCHS}")
     print(f"批次大小: {BATCH_SIZE}")
-    print(f"初始学习率: {LEARNING_RATE}")
+    print(f"最大学习率: {LEARNING_RATE}")
     print(f"最小学习率: {MIN_LR}")
-    print(f"学习率策略: CosineAnnealingLR (余弦退火)")
+    print(f"初始学习率: {LEARNING_RATE/25:.2e} (max_lr / div_factor)")
+    print(f"Early Stopping Patience: {PATIENCE}轮")
+    print(f"学习率策略: OneCycleLR (与原始代码一致)")
+    print(f"  - pct_start: 0.3 (前30%步骤warm-up)")
+    print(f"  - final_div_factor: 1e3 (最终lr = max_lr/1000)")
     print(f"设备: {device}")
     print("="*60)
 
     for epoch in range(NUM_EPOCHS):
-        train_loss, elapsed = train_epoch(model, device, train_loader, optimizer)
+        train_loss, elapsed = train_epoch(model, device, train_loader, optimizer, scheduler)
         val_loss, val_metrics = validate(model, device, val_loader)
         
         # 获取当前学习率
@@ -185,11 +200,20 @@ def main():
         # 只在有改进时保存最佳模型(基于验证损失)
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            epochs_no_improve = 0  # 重置计数器
             torch.save(model.state_dict(), 'MicroWaveNet_best.pt')
             print(f'✓ 保存最佳模型 (Val Loss: {best_val_loss:.6f})')
+        else:
+            epochs_no_improve += 1
+            print(f'⚠ 验证损失未改善 ({epochs_no_improve}/{PATIENCE})')
         
-        # 更新学习率
-        scheduler.step()
+        # Early stopping检查
+        if epochs_no_improve >= PATIENCE:
+            print(f'\n早停触发！已连续{PATIENCE}轮验证损失未改善')
+            print(f'在第{epoch+1}轮停止训练')
+            break
+        
+        # ⚠️ 注意：OneCycleLR已经在每个batch中调用step()，这里不需要再调用
 
     print("\n" + "="*60)
     print('训练完成!')

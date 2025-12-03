@@ -12,7 +12,7 @@ sys.path.insert(0, parent_dir)
 from dataset_config import get_dataset_config
 
 # ========== 数据集选择 ==========
-DATASET_NAME = 'semi_simulated'  # 可选: 'semi_simulated', 'fully_simulated'
+DATASET_NAME = 'fully_simulated'  # 可选: 'semi_simulated', 'fully_simulated'
 
 # 获取数据集配置
 dataset_config = get_dataset_config(DATASET_NAME)

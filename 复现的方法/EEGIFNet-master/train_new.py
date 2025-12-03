@@ -25,7 +25,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data_config import *
 
 BATCH_SIZE = 256  # EEGIFNet原始batch size
-LEARNING_RATE = 1e-3  # EEGIFNet原始学习率
+LEARNING_RATE = 5e-5  # EEGIFNet原始学习率 (⚠️ 注意：原始代码使用5e-5而不是1e-3)
 EPOCHS = 2000  # EEGIFNet原始训练轮数
 
 class EEGDataset(Dataset):
@@ -139,8 +139,8 @@ def train_epoch(I_model, M_model, device, train_loader, optimizer_I, optimizer_M
         n_outputs_restored = n_outputs * norm_factors
         outputs_restored = outputs * norm_factors
         
-        # 计算噪声目标 (原始尺度)
-        z = x - y
+        # 计算噪声目标 (原始尺度) - ⚠️ 与原始EEGIFNet一致：使用x.squeeze()-y
+        z = x - y  # x已经是(batch, time)，不需要squeeze
         
         # 在原始尺度计算loss
         loss_e = criterion(e_outputs_restored, y)
@@ -203,8 +203,8 @@ def validate_epoch(I_model, M_model, device, val_loader, criterion, epoch, epoch
             # 添加通道维度
             x_with_channel = x.unsqueeze(1)
             
-            # 计算噪声目标 (原始尺度)
-            z = x - y
+            # 计算噪声目标 (原始尺度) - ⚠️ 与原始EEGIFNet一致
+            z = x - y  # x已经是(batch, time)，不需要squeeze
 
             # 模型预测
             e_outputs, n_outputs = I_model(x_with_channel)
@@ -321,11 +321,11 @@ def main():
 
     # 学习率调度器 - ReduceLROnPlateau，最多衰减到原始学习率的1/10
     scheduler_I = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer_I, mode='min', factor=0.5, patience=20, 
+        optimizer_I, mode='min', factor=0.5, patience=50, 
         min_lr=args.lr * 0.1, verbose=True
     )
     scheduler_M = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer_M, mode='min', factor=0.5, patience=20, 
+        optimizer_M, mode='min', factor=0.5, patience=50, 
         min_lr=args.lr * 0.1, verbose=True
     )
 
@@ -335,8 +335,11 @@ def main():
     # 训练
     print("开始训练...")
     print(f"初始学习率: {args.lr}, 最小学习率: {args.lr * 0.1}")
+    print(f"Early Stopping Patience: 50轮")
     best_val_loss = float('inf')
     best_acc = 0
+    epochs_no_improve = 0  # Early stopping计数器
+    PATIENCE = 50  # Early stopping patience
     begin_time = time()
 
     for epoch in range(args.epochs):
@@ -359,12 +362,21 @@ def main():
         # 保存最佳模型
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            epochs_no_improve = 0  # 重置计数器
             print(f"  >> 保存最佳模型 (val_loss: {val_loss:.6f})")
             torch.save(I_model.state_dict(), os.path.join(args.save_dir, 'EEGIFNet_INet_best.pkl'))
             torch.save(M_model.state_dict(), os.path.join(args.save_dir, 'EEGIFNet_MNet_best.pkl'))
+        else:
+            epochs_no_improve += 1
 
         if val_acc > best_acc:
             best_acc = val_acc
+        
+        # Early stopping检查
+        if epochs_no_improve >= PATIENCE:
+            print(f"\n早停触发！已连续{PATIENCE}轮验证损失未改善")
+            print(f"在第{epoch+1}轮停止训练")
+            break
 
         # 定期保存
         if (epoch + 1) % 10 == 0:

@@ -1,11 +1,17 @@
 
 import os
+import sys
 import time
 import scipy.io
 import torch
 import torch.utils.data as Data
 import numpy as np
 
+# 添加父目录以导入数据配置
+parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, parent_dir)
+
+from data_config import DATA_DIR, TEST_CONTAMINATED_PATH, TEST_PURE_PATH, DATA_KEY
 from cbamdropout import EEGNetMorletWindowCBAMDropout
 
 
@@ -78,10 +84,9 @@ def test_model(model, device, test_loader):
 
 
 def main():
-    data_dir = DATA_DIR  # 从data_config导入
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    test_loader, test_targets = load_test_data(data_dir)
+    test_loader, test_targets = load_test_data(DATA_DIR)
 
     model = EEGNetMorletWindowCBAMDropout(device=device)
     model.to(device)

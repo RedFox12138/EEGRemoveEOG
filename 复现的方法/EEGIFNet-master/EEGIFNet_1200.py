@@ -94,18 +94,22 @@ class Exchange(nn.Module):
 
 class MA_INet(nn.Module):
     """
-    INet - 适配1200时间点
+    INet - 交互式网络，支持可变窗口大小
     
     架构:
-    - 输入: (B, 1, 1200)
-    - Conv1 (stride=2): (B, 32, 600)
-    - Conv2 (stride=2): (B, 32, 300)
-    - Conv3 (stride=2): (B, 32, 150)
-    - GRU: (B, 150, 64)
-    - Flatten: (B, 9600)
-    - FC: (B, 1200)
+    - 输入: (B, 1, input_length)
+    - Conv1 (stride=2): (B, 32, input_length/2)
+    - Conv2 (stride=2): (B, 32, input_length/4)
+    - Conv3 (stride=2): (B, 32, input_length/8)
+    - GRU: (B, conv_len, 64)
+    - Flatten: (B, conv_len * 64)
+    - FC: (B, input_length)
+    
+    示例 (精确计算):
+    - input_length=1500: 1500->750->375->188, FC输入12032 (188*64)
+    - input_length=1200: 1200->600->300->150, FC输入9600 (150*64)
     """
-    def __init__(self, input_length=1200):
+    def __init__(self, input_length=1500):
         super(MA_INet, self).__init__()
         
         self.input_length = input_length
@@ -161,13 +165,23 @@ class MA_INet(nn.Module):
 
         self.i4 = Interaction_Block(64)
 
-        # 计算经过3次stride=2卷积后的长度
-        # 1200 -> 600 -> 300 -> 150
-        conv_output_length = input_length // 8  # 150
+        # 精确计算经过3次stride=2, padding=4, kernel=9的卷积后的长度
+        # 公式: output = floor((input + 2*padding - kernel) / stride) + 1
+        def calc_conv_output(length, kernel=9, stride=2, padding=4):
+            return (length + 2*padding - kernel) // stride + 1
+        
+        conv_len = input_length
+        conv_len = calc_conv_output(conv_len)  # 第1次卷积
+        conv_len = calc_conv_output(conv_len)  # 第2次卷积
+        conv_len = calc_conv_output(conv_len)  # 第3次卷积
+        # 1500: 1500->750->375->188
+        # 1200: 1200->600->300->150
+        
+        conv_output_length = conv_len
         rnn_output_dim = 64  # bidirectional GRU: 32*2=64
-        fc_input_dim = conv_output_length * rnn_output_dim  # 150 * 64 = 9600
+        fc_input_dim = conv_output_length * rnn_output_dim  # 精确计算
 
-        # 全连接层 - 适配1200时间点
+        # 全连接层 - 自适应窗口大小
         self.f1_e = nn.Linear(fc_input_dim, input_length)
         self.f1_n = nn.Linear(fc_input_dim, input_length)
 
@@ -267,15 +281,15 @@ class MA_INet(nn.Module):
 
 class MA_MNet(nn.Module):
     """
-    MNet - 融合网络，适配1200时间点
+    MNet - 融合网络，支持可变窗口大小
     
     输入:
-    - x: 原始污染信号 (B, 1, 1200)
-    - x1: INet预测的clean EEG (B, 1200)
-    - x2: INet预测的noise (B, 1200)
+    - x: 原始污染信号 (B, 1, input_length)
+    - x1: INet预测的clean EEG (B, input_length)
+    - x2: INet预测的noise (B, input_length)
     
     输出:
-    - 融合后的去噪信号 (B, 1200)
+    - 融合后的去噪信号 (B, input_length)
     """
     def __init__(self):
         super(MA_MNet, self).__init__()
@@ -312,11 +326,11 @@ class MA_MNet(nn.Module):
 
 if __name__ == '__main__':
     # 测试网络
-    print("测试EEGIFNet (1200时间点版本)")
+    print("测试EEGIFNet (支持可变窗口大小)")
     
     # 创建测试数据
     batch_size = 4
-    time_points = 1200
+    time_points = 1500  # 默认测试1500，也可以改为1200
     x = torch.randn(batch_size, 1, time_points)
     
     # 测试INet
