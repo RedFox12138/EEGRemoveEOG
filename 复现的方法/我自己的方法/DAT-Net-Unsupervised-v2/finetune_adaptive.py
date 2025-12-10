@@ -99,13 +99,13 @@ def get_data():
     full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
     
     # 取前20%数据
-    num_samples = int(len(full_train_x) * 0.3)
+    num_samples = int(len(full_train_x) * 0.1)
     train_x = full_train_x[:num_samples]
     train_y = full_train_y[:num_samples]
     
     # 验证集
-    val_x = scipy.io.loadmat(f'{data_dir}/Val_Contaminated.mat')['data']
-    val_y = scipy.io.loadmat(f'{data_dir}/Val_Pure.mat')['data']
+    val_x = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
+    val_y = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
     
     return train_x, train_y, val_x, val_y
 
@@ -439,7 +439,7 @@ def main():
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_val_cc = val_cc
-            torch.save(model.state_dict(), 'DAT-Net-Unsupervised-v2_finetuned_best_40%数据.pth')
+            torch.save(model.state_dict(), 'DAT-Net-Unsupervised-v2_finetuned_best_10%数据.pth')
             print(f'  ✅ 保存最佳模型 (Val Loss: {val_loss:.6f}, CC: {val_cc:.4f})')
             no_improve_count = 0
         else:
@@ -467,7 +467,7 @@ def main():
     print(f'  - DAT-Net-Unsupervised-v2_finetuned_final.pth (最终模型)')
 
     # 加载最佳模型并在测试集上评估
-    best_model_path = 'DAT-Net-Unsupervised-v2_finetuned_best_20%数据.pth'
+    best_model_path = 'DAT-Net-Unsupervised-v2_finetuned_best_10%数据.pth'
     if os.path.exists(best_model_path):
         print(f'\n加载最佳模型进行测试集评估: {best_model_path}')
         model.load_state_dict(torch.load(best_model_path, map_location=device))

@@ -20,6 +20,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from model import DATNet, DAT_Loss
 
+# 导入数据集配置
+parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, parent_dir)
+from dataset_config import get_dataset_config
+
+# 获取全模拟数据集配置
+dataset_config = get_dataset_config('fully_simulated')
+
 
 
 # ========== 超参数配置 ==========
@@ -63,13 +71,11 @@ class EEGDataset(Dataset):
 
 def get_data():
     """加载训练和验证数据"""
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
+    train_x = scipy.io.loadmat(dataset_config['train_contaminated_path'])[dataset_config['data_key']]
+    train_y = scipy.io.loadmat(dataset_config['train_pure_path'])[dataset_config['data_key']]
     
-    train_x = scipy.io.loadmat(f'{data_dir}/Train_Contaminated.mat')['data']
-    train_y = scipy.io.loadmat(f'{data_dir}/Train_Pure.mat')['data']
-    
-    val_x = scipy.io.loadmat(f'{data_dir}/Val_Contaminated.mat')['data']
-    val_y = scipy.io.loadmat(f'{data_dir}/Val_Pure.mat')['data']
+    val_x = scipy.io.loadmat(dataset_config['val_contaminated_path'])[dataset_config['data_key']]
+    val_y = scipy.io.loadmat(dataset_config['val_pure_path'])[dataset_config['data_key']]
     
     return train_x, train_y, val_x, val_y
 
@@ -177,7 +183,7 @@ def validate(model, device, loader):
     # 计算评价指标
     all_preds = np.concatenate(all_preds, axis=0)
     all_targets = np.concatenate(all_targets, axis=0)
-    metrics = compute_all_metrics(all_preds, all_targets, fs=200)
+    metrics = compute_all_metrics(all_preds, all_targets, fs=dataset_config['sampling_rate'])
     
     # 返回损失和指标
     loss_dict = {

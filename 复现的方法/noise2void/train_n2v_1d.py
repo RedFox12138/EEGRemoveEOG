@@ -172,12 +172,18 @@ def validate(model, device, loader):
 
 
 def main():
-    # 切换到脚本所在目录，避免路径问题
-    os.chdir(str(current_dir))
+    # 切换到脚本所在目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+    
+    # 创建 checkpoints 目录（使用相对路径）
+    os.makedirs('checkpoints', exist_ok=True)
     
     print('='*70)
     print('Noise2Void 1D EEG Denoising 训练')
     print('='*70)
+    print(f'工作目录: {os.getcwd()}')
+    print(f'模型保存目录: checkpoints/')
     
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print(f'使用设备: {device}')
@@ -282,9 +288,10 @@ def main():
             best_val_loss = val_loss
             best_metrics = val_metrics
             print(f'\n[*] 验证损失降低: {best_val_loss:.6f}')
-            # 使用相对路径保存（已切换到脚本目录）
-            save_path = 'N2V_1D_best.pth'
+            # 使用相对路径保存
+            save_path = f'checkpoints/N2V_1D_{DATASET_NAME}_best.pth'
             torch.save(model.state_dict(), save_path)
+            print(f'模型已保存到: {save_path}')
             patience_counter = 0
         else:
             patience_counter += 1
@@ -305,8 +312,9 @@ def main():
             break
     
     # 保存最终模型
-    save_path = 'N2V_1D_final.pth'
+    save_path = f'checkpoints/N2V_1D_{DATASET_NAME}_final.pth'
     torch.save(model.state_dict(), save_path)
+    print(f'\n最终模型已保存到: {save_path}')
     
     print('\n' + '='*70)
     print('训练完成！')

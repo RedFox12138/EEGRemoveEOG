@@ -256,6 +256,16 @@ class UpBlock(nn.Module):
         # 上采样
         x = self.upsample(x)
         
+        # 尺寸自适应匹配：如果上采样后的尺寸与skip不匹配，进行裁剪或填充
+        if x.size(2) != skip.size(2):
+            if x.size(2) > skip.size(2):
+                # 裁剪x以匹配skip
+                x = x[:, :, :skip.size(2)]
+            else:
+                # 填充x以匹配skip
+                pad_size = skip.size(2) - x.size(2)
+                x = torch.nn.functional.pad(x, (0, pad_size), mode='replicate')
+        
         # 拼接跳跃连接
         x = torch.cat([x, skip], dim=1)
         

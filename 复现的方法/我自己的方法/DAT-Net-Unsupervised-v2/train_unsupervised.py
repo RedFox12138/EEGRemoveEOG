@@ -195,6 +195,27 @@ def main():
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print('\n使用设备:', device)
 
+    # 使用相对路径避免中文路径问题
+    # 先切换到脚本所在目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+    print(f'当前工作目录: {os.getcwd()}')
+    
+    # 使用相对路径创建checkpoints目录
+    checkpoint_dir = 'checkpoints'
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        print(f'[创建目录] {checkpoint_dir}')
+    
+    # 定义模型保存路径（使用相对路径）
+    model_save_path = os.path.join(checkpoint_dir, f'datnet_unsupervised_v2_{DATASET_NAME}_best.pth')
+    final_model_path = os.path.join(checkpoint_dir, f'datnet_unsupervised_v2_{DATASET_NAME}_final.pth')
+    
+    print(f'检查点目录: {checkpoint_dir}')
+    print(f'检查点目录存在: {os.path.exists(checkpoint_dir)}')
+    print(f'最佳模型路径: {model_save_path}')
+    print(f'最终模型路径: {final_model_path}')
+
     train_x, val_x, val_y = get_data()
     print('训练集:', train_x.shape)
     print('验证集:', val_x.shape)
@@ -250,8 +271,14 @@ def main():
         if val_loss['total'] < best_val_loss:
             best_val_loss = val_loss['total']
             improved = True
-            print(f'\n✓ 验证损失降低: {best_val_loss:.6f}')
-            torch.save(model.state_dict(), MODEL_SAVE_PATH)
+            print(f'\n[*] 验证损失降低: {best_val_loss:.6f}')
+            # 每次保存前都确保目录存在（使用相对路径）
+            save_dir = os.path.dirname(model_save_path) if os.path.dirname(model_save_path) else '.'
+            if save_dir != '.' and not os.path.exists(save_dir):
+                os.makedirs(save_dir, exist_ok=True)
+                print(f'[创建目录] {save_dir}')
+            print(f'保存最佳模型到: {model_save_path}')
+            torch.save(model.state_dict(), model_save_path)
             patience_counter = 0
         else:
             patience_counter += 1
@@ -267,9 +294,16 @@ def main():
             print(f'\n早停触发！{PATIENCE} 个epoch内无改善。')
             break
 
-    torch.save(model.state_dict(), FINAL_MODEL_PATH)
-    print(f'训练完成，模型已保存到: {MODEL_SAVE_PATH}')
-    print(f'最终模型已保存到: {FINAL_MODEL_PATH}')
+    # 保存最终模型（使用相对路径）
+    final_save_dir = os.path.dirname(final_model_path) if os.path.dirname(final_model_path) else '.'
+    if final_save_dir != '.' and not os.path.exists(final_save_dir):
+        os.makedirs(final_save_dir, exist_ok=True)
+        print(f'[创建目录] {final_save_dir}')
+    print(f'\n保存最终模型到: {final_model_path}')
+    torch.save(model.state_dict(), final_model_path)
+    print(f'训练完成！')
+    print(f'最佳模型: {model_save_path}')
+    print(f'最终模型: {final_model_path}')
 
 
 if __name__ == '__main__':

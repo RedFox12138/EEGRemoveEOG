@@ -18,6 +18,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from model import DATNet
 
+# 导入数据集配置
+parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, parent_dir)
+from dataset_config import get_dataset_config
+
+# 获取全模拟数据集配置
+dataset_config = get_dataset_config('fully_simulated')
+
 
 class TestDataset(Dataset):
     """测试数据集"""
@@ -42,9 +50,8 @@ class TestDataset(Dataset):
 
 def load_data():
     """加载测试数据"""
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
-    test_input = scipy.io.loadmat(f'{data_dir}/Test_Contaminated.mat')['data']
-    test_output = scipy.io.loadmat(f'{data_dir}/Test_Pure.mat')['data']
+    test_input = scipy.io.loadmat(dataset_config['test_contaminated_path'])[dataset_config['data_key']]
+    test_output = scipy.io.loadmat(dataset_config['test_pure_path'])[dataset_config['data_key']]
     return test_input, test_output
 
 
@@ -117,7 +124,7 @@ def main():
     
     # 计算评价指标
     print('\n计算评价指标...')
-    metrics = compute_all_metrics(eeg_preds, targets, fs=200)
+    metrics = compute_all_metrics(eeg_preds, targets, fs=dataset_config['sampling_rate'])
     print_metrics(metrics, prefix='测试集')
     
     # 保存结果

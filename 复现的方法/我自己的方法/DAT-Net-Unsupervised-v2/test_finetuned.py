@@ -163,7 +163,7 @@ def test_model(model_path, output_suffix, device):
 
 def main():
     parser = argparse.ArgumentParser(description='DAT-Net-Unsupervised-v2 测试脚本')
-    parser.add_argument('--model', type=str, default='DAT-Net-Unsupervised-v2_finetuned_best_10%数据.pth',
+    parser.add_argument('--model', type=str, default='DAT-Net-Unsupervised-v2_finetuned_best_10%鏁版嵁.pth',
                         help='模型权重文件路径')
     parser.add_argument('--suffix', type=str, default='finetuned_best',
                         help='输出文件后缀名')

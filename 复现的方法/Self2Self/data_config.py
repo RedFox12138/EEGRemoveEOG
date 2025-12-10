@@ -41,14 +41,14 @@ PATIENCE = 100
 CHECKPOINT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'checkpoints')
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-MODEL_SAVE_PATH = os.path.join(CHECKPOINT_DIR, f'Self2Self_{}_best.pth'.format(DATASET_NAME))
-FINAL_MODEL_PATH = os.path.join(CHECKPOINT_DIR, f'Self2Self_{}_final.pth'.format(DATASET_NAME))
+MODEL_SAVE_PATH = os.path.join(CHECKPOINT_DIR, f'Self2Self_{DATASET_NAME}_best.pth')
+FINAL_MODEL_PATH = os.path.join(CHECKPOINT_DIR, f'Self2Self_{DATASET_NAME}_final.pth')
 
 # ========== 结果保存路径 ==========
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'results')
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-PREDICTION_SAVE_PATH = os.path.join(RESULTS_DIR, f'Self2Self_{}_predictions.mat'.format(DATASET_NAME))
+PREDICTION_SAVE_PATH = os.path.join(RESULTS_DIR, f'Self2Self_{DATASET_NAME}_predictions.mat')
 
 
 def print_config():

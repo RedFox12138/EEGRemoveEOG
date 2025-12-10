@@ -71,9 +71,14 @@ def load_data():
 
 
 def main():
+    # 切换到脚本所在目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+    
     print('='*70)
     print('Self2Self 1D EEG Denoising 测试')
     print('='*70)
+    print(f'工作目录: {os.getcwd()}')
     
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print(f'使用设备: {device}')
@@ -97,14 +102,14 @@ def main():
     
     print(f'模型参数量: {model.count_parameters():,}')
     
-    # 加载训练好的权重
-    model_path = os.path.join(current_dir, 'Self2Self_1D_best.pth')
+    # 加载训练好的权重（使用相对路径）
+    model_path = f'checkpoints/Self2Self_{DATASET_NAME}_best.pth'
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path, map_location=device))
         print(f'加载模型: {model_path}')
     else:
         print('⚠️ 找不到训练好的模型，尝试 final 版本...')
-        model_path = os.path.join(current_dir, 'Self2Self_1D_final.pth')
+        model_path = f'checkpoints/Self2Self_{DATASET_NAME}_final.pth'
         if os.path.exists(model_path):
             model.load_state_dict(torch.load(model_path, map_location=device))
             print(f'加载模型: {model_path}')
@@ -158,13 +163,11 @@ def main():
     
     # 计算评价指标
     print('\n计算评价指标...')
-    metrics = compute_all_metrics(predictions, targets, fs=200)
+    metrics = compute_all_metrics(predictions, targets, fs=SAMPLING_RATE)
     print_metrics(metrics, prefix='测试集')
     
     # 保存结果
-    out_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
-    os.makedirs(out_dir, exist_ok=True)
-    save_path = os.path.join(out_dir, 'Self2Self_1D_predictions.mat')
+    save_path = PREDICTION_SAVE_PATH
     
     scipy.io.savemat(save_path, {
         'predictions': predictions,

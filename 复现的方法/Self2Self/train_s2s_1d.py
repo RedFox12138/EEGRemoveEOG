@@ -206,9 +206,18 @@ def validate(model, device, loader, has_clean_labels=False, n_predictions=None):
 
 
 def main():
+    # 切换到脚本所在目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+    
+    # 创建 checkpoints 目录（使用相对路径）
+    os.makedirs('checkpoints', exist_ok=True)
+    
     print('='*70)
     print('Self2Self 1D EEG Denoising 训练')
     print('='*70)
+    print(f'工作目录: {os.getcwd()}')
+    print(f'模型保存目录: checkpoints/')
     
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print(f'使用设备: {device}')
@@ -305,16 +314,10 @@ def main():
                 best_metrics = val_metrics
             print(f'\n✓ 验证损失降低: {best_val_loss:.6f}')
             
-            # 保存模型 - 使用相对于工作目录的路径
-            save_filename = 'Self2Self_1D_best.pth'
-            # 切换到脚本所在目录保存
-            original_cwd = os.getcwd()
-            try:
-                os.chdir(str(current_dir))
-                torch.save(model.state_dict(), save_filename)
-                print(f'模型已保存到: {current_dir / save_filename}')
-            finally:
-                os.chdir(original_cwd)
+            # 使用相对路径保存模型
+            save_path = f'checkpoints/Self2Self_{DATASET_NAME}_best.pth'
+            torch.save(model.state_dict(), save_path)
+            print(f'模型已保存到: {save_path}')
             
             patience_counter = 0
         else:
@@ -337,24 +340,14 @@ def main():
         
         # 每50个epoch保存一次检查点
         if epoch % 50 == 0:
-            save_filename = f'Self2Self_1D_epoch_{epoch}.pth'
-            original_cwd = os.getcwd()
-            try:
-                os.chdir(str(current_dir))
-                torch.save(model.state_dict(), save_filename)
-                print(f'检查点已保存: {save_filename}')
-            finally:
-                os.chdir(original_cwd)
+            checkpoint_path = f'checkpoints/Self2Self_{DATASET_NAME}_epoch_{epoch}.pth'
+            torch.save(model.state_dict(), checkpoint_path)
+            print(f'检查点已保存: {checkpoint_path}')
     
     # 保存最终模型
-    save_filename = 'Self2Self_1D_final.pth'
-    original_cwd = os.getcwd()
-    try:
-        os.chdir(str(current_dir))
-        torch.save(model.state_dict(), save_filename)
-        print(f'\n最终模型已保存到: {current_dir / save_filename}')
-    finally:
-        os.chdir(original_cwd)
+    save_path = f'checkpoints/Self2Self_{DATASET_NAME}_final.pth'
+    torch.save(model.state_dict(), save_path)
+    print(f'\n最终模型已保存到: {save_path}')
     
     print('\n' + '='*70)
     print('训练完成！')

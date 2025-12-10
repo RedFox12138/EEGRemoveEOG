@@ -4,7 +4,7 @@ import time
 import scipy.io
 import torch
 import torch.nn as nn
-import torch.optim as optim
+import torch.optim as o ptim
 import torch.utils.data as Data
 import numpy as np
 

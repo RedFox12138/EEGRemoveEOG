@@ -34,11 +34,10 @@ BATCH_SIZE = 128
 EPOCHS = 300
 LEARNING_RATE = 1e-4
 MASK_RATIO = 0.4  # 增大掩码比例，强迫模型更多地进行预测而非复制
-SAMPLING_RATE = 200.0
 
-# 我们的数据尺寸
+# 我们的数据尺寸（从data_config中获取，适配不同数据集）
 INPUT_CHANNELS = 1  # 单通道EEG
-SEQ_LEN = 1200      # 序列长度（6秒 * 200Hz）
+SEQ_LEN = WINDOW_SIZE  # 序列长度（从配置文件获取，自动适配）
 HIDDEN_DIM = 128    # 隐藏层维度
 
 

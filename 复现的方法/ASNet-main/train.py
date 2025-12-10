@@ -115,7 +115,7 @@ def verify(model, device, verify_loader):
     model.eval()
     step_num = 0
     loss_epoch = 0
-    
+
     # 用于收集所有预测和真实值
     all_predictions = []
     all_targets = []
@@ -161,7 +161,7 @@ model.to(device)
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # 训练配置
-NUM_EPOCHS = 500
+NUM_EPOCHS = 1000
 best_val_loss = float('inf')  # 使用验证损失作为最佳模型选择标准(越小越好)
 best_model_path = f'{model_name}_best.pkl'
 
