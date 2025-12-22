@@ -18,6 +18,7 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)  # DAT-Net-Unsupervised-v2
 grandparent_dir = os.path.dirname(parent_dir)  # 我自己的方法
+great_grandparent_dir = os.path.dirname(grandparent_dir)  # 复现的方法目录
 datnet_dir = os.path.join(grandparent_dir, 'DAT-Net')
 
 # 添加必要的路径
@@ -25,9 +26,11 @@ if os.path.isdir(datnet_dir):
     sys.path.insert(0, datnet_dir)
 sys.path.insert(0, parent_dir)  # 添加 DAT-Net-Unsupervised-v2 目录
 sys.path.insert(0, current_dir)  # 添加当前目录
+sys.path.insert(0, great_grandparent_dir)  # 添加复现的方法目录，以访问 load_real_dataset_split
 
 from model import DATNet
 from real_data_config import *
+from load_real_dataset_split import load_real_dataset_split
 
 
 class RealDataset(Dataset):
@@ -46,39 +49,25 @@ class RealDataset(Dataset):
         return noisy.astype('float32') / norm, norm
 
 
-def load_data():
-    """加载真实数据"""
-    print('\n正在加载真实数据集...')
+def print_config():
+    """打印配置信息"""
+    print('\n' + '='*80)
+    print('配置信息')
+    print('='*80)
+    print(f'采样率: {SAMPLING_RATE} Hz')
+    print(f'窗口大小: {WINDOW_SIZE} 样本 ({WINDOW_DURATION:.1f} 秒)')
     print(f'数据路径: {REAL_DATA_PATH}')
-    
-    # 加载数据
-    data_dict = scipy.io.loadmat(REAL_DATA_PATH)
-    
-    # 尝试不同的可能的 key
-    possible_keys = [DATA_KEY, 'data', 'eeg_data', 'X', 'signals']
-    data = None
-    
-    for key in possible_keys:
-        if key in data_dict:
-            data = data_dict[key]
-            print(f'  ✓ 使用 key: "{key}"')
-            break
-    
-    if data is None:
-        # 打印所有可用的 key
-        available_keys = [k for k in data_dict.keys() if not k.startswith('__')]
-        raise ValueError(f'无法找到数据！可用的 keys: {available_keys}\n请在 real_data_config.py 中修改 DATA_KEY')
-    
-    print(f'  数据形状: {data.shape}')
-    
-    # 验证数据形状
-    if len(data.shape) != 2:
-        raise ValueError(f'数据形状错误！期望 (n_samples, window_size)，但得到 {data.shape}')
-    
-    n_samples, sample_length = data.shape
-    print(f'  样本数量: {n_samples}')
-    print(f'  样本长度: {sample_length}')
-    
+    print('='*80)
+
+
+def load_data():
+    """加载真实数据（只加载测试集）"""
+    # 使用统一的数据划分函数，只返回测试集
+    data = load_real_dataset_split(
+        data_path=REAL_DATA_PATH,
+        data_key=DATA_KEY,
+        return_train=False  # 只需要测试集
+    )
     return data
 
 
@@ -220,9 +209,9 @@ def main():
     # 创建结果目录
     os.makedirs(RESULTS_DIR, exist_ok=True)
     
-    # 加载数据
+    # 加载数据（只加载测试集）
     test_x = load_data()
-    print(f'\n总样本数: {len(test_x)}')
+    print(f'\n测试集样本数: {len(test_x)}')
     
     # 创建数据集和加载器
     ds = RealDataset(test_x)

@@ -378,7 +378,7 @@ def main():
     # 创建模型并加载预训练权重
     model = DATNet(in_channels=1, base_channels=32).to(device)
 
-    pretrained_path = 'DAT-Net-Unsupervised-v2_best.pth'
+    pretrained_path = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best.pth'
     if os.path.exists(pretrained_path):
         model.load_state_dict(torch.load(pretrained_path, map_location=device))
         print(f'✓ 加载预训练模型: {pretrained_path}')

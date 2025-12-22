@@ -48,8 +48,8 @@ for i = 1:n_samples
     
     % 使用SSA去除EOG伪影
     try
-        % 调用SSA去除函数
-        cleaned_signal = ci_ssa_eog_removal(signal, SAMPLING_RATE);
+        % 调用SSA去除函数（使用命名参数）
+        cleaned_signal = ci_ssa_eog_removal(signal, 'fs', SAMPLING_RATE);
         cleaned_eeg(i, :) = cleaned_signal;
     catch ME
         fprintf('  ⚠️ 警告: 样本 %d 处理失败: %s\n', i, ME.message);

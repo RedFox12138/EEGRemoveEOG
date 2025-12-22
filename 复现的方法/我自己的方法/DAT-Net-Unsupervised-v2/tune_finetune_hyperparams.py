@@ -42,7 +42,7 @@ BATCH_SIZE = 256
 SAMPLING_RATE = 200.0
 DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 EPOCHS = 1000  # 调优时减少epoch数以加快速度
-PRETRAINED_PATH = 'DAT-Net-Unsupervised-v2_best.pth'
+PRETRAINED_PATH = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best.pth'
 
 
 class SupervisedDataset(Dataset):

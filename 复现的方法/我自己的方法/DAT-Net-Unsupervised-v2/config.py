@@ -13,7 +13,7 @@ from dataset_config import get_dataset_config
 
 # ========== 数据集选择 ==========
 # 可选值: 'semi_simulated', 'fully_simulated'
-DATASET_NAME = 'fully_simulated'  # 修改这里可以切换数据集
+DATASET_NAME = 'semi_simulated'  # 修改这里可以切换数据集
 
 # 获取数据集配置
 dataset_config = get_dataset_config(DATASET_NAME)
