@@ -17,6 +17,7 @@ from time import time
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir) # 复现的方法
 sys.path.insert(0, parent_dir)
+sys.path.insert(0, current_dir)
 
 # 导入模型和工具
 from model_selfsupervised import DenoiseEEG
@@ -25,17 +26,17 @@ from utils_selfsupervised import get_pearson_correlation, get_snr, trrmse_metric
 # 导入metrics
 from metrics_utils import compute_all_metrics, print_metrics
 
-# 导入数据集配置
+# 导入数据配置
 from data_config import *
 
 
 # ========== 超参数配置（与原始Self-Supervised一致）==========
 BATCH_SIZE = 128
-EPOCHS = 300
+EPOCHS = 2000
 LEARNING_RATE = 1e-4
 MASK_RATIO = 0.4  # 增大掩码比例，强迫模型更多地进行预测而非复制
 
-# 我们的数据尺寸（从data_config中获取，适配不同数据集）
+# 我们的数据尺寸（从 data_config 中获取，适配不同数据集）
 INPUT_CHANNELS = 1  # 单通道EEG
 SEQ_LEN = WINDOW_SIZE  # 序列长度（从配置文件获取，自动适配）
 HIDDEN_DIM = 128    # 隐藏层维度
@@ -311,7 +312,7 @@ def main():
     # 训练循环
     best_rrmse = float('inf')
     best_metrics = {}
-    patience = 200
+    patience = 100
     patience_counter = 0
     start_training_time = time()
     

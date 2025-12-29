@@ -21,7 +21,6 @@ function compute_all_metrics()
     % ===================== 配置路径 =====================
     % 获取数据集配置（使用半模拟数据集）
     config = getDatasetConfig('semi_simulated');
-    test_pure_path = config.testPurePath;
     
     % 结果目录
     results_dir = fullfile(pwd, 'results');
@@ -31,7 +30,47 @@ function compute_all_metrics()
         error('错误: 结果目录不存在 -> %s', results_dir);
     end
     
-    % 1. 加载测试集
+    % 1. 检测是否为多SNR配置
+    if isfield(config, 'hasMultiSnrTest') && config.hasMultiSnrTest
+        fprintf('\n检测到多SNR测试集配置\n');
+        fprintf('SNR级别: %s\n', mat2str(config.testSnrLevels));
+        
+        % 为每个SNR级别计算指标
+        for snr_idx = 1:length(config.testSnrLevels)
+            current_snr = config.testSnrLevels(snr_idx);
+            fprintf('\n================================================================================\n');
+            fprintf('%s\n', center_text(sprintf('处理 SNR = %d dB 的测试集', current_snr), 80));
+            fprintf('================================================================================\n');
+            
+            % 获取该SNR级别的测试集路径
+            test_pure_path = config.testSnrPaths(snr_idx).pure;
+            
+            % 加载测试集
+            fprintf('\n正在加载测试集: %s\n', test_pure_path);
+            if ~exist(test_pure_path, 'file')
+                warning('找不到测试集文件: %s, 跳过', test_pure_path);
+                continue;
+            end
+            
+            data_struct = load(test_pure_path);
+            true_signals = data_struct.(config.dataKey);
+            fprintf('✓ 已加载基准测试集: %s\n', mat2str(size(true_signals)));
+            
+            % 处理该SNR级别的所有方法
+            process_snr_level(config, current_snr, true_signals, results_dir);
+        end
+        
+        fprintf('\n================================================================================\n');
+        fprintf('%s\n', center_text('全部SNR级别处理完成！', 80));
+        fprintf('================================================================================\n');
+        return;
+    end
+    
+    % 单一测试集配置（向后兼容）
+    fprintf('\n检测到单一测试集配置\n');
+    test_pure_path = config.testPurePath;
+    
+    % 加载测试集
     fprintf('\n正在加载测试集...\n');
     if ~exist(test_pure_path, 'file')
         error('找不到测试集文件: %s', test_pure_path);
@@ -391,8 +430,16 @@ end
 
 %% ===================== 绘图函数 =====================
 
-function plot_comparison(results_dict, method_names, output_dir)
+function plot_comparison(results_dict, method_names, output_dir, varargin)
 % 生成对比图表 - 4个子图，带(a)(b)(c)(d)标识
+% varargin{1}: 可选的文件名后缀 (例如 '_SNR-6dB')
+    
+    % 获取可选的后缀
+    if nargin >= 4
+        suffix = varargin{1};
+    else
+        suffix = '';
+    end
     
     n_methods = length(method_names);
     
@@ -576,8 +623,16 @@ function plot_comparison(results_dict, method_names, output_dir)
 end
 
 
-function plot_time_comparison(results_dict, method_field_names, results_dir)
+function plot_time_comparison(results_dict, method_field_names, results_dir, varargin)
     % 绘制运行时间对比图（按时间排序）
+    % varargin{1}: 可选的文件名后缀 (例如 '_SNR-6dB')
+    
+    % 获取可选的后缀
+    if nargin >= 4
+        suffix = varargin{1};
+    else
+        suffix = '';
+    end
     
     n_methods = length(method_field_names);
     times = zeros(n_methods, 1);
@@ -640,6 +695,100 @@ end
 
 
 %% ===================== 辅助函数 =====================
+
+function process_snr_level(config, current_snr, true_signals, results_dir)
+% 处理单个SNR级别的所有方法预测结果
+    
+    % 扫描该SNR级别对应的结果文件
+    fprintf('\n[扫描目录] %s\n', results_dir);
+    snr_pattern = sprintf('*_SNR%ddB.mat', current_snr);
+    mat_files = dir(fullfile(results_dir, snr_pattern));
+    
+    if isempty(mat_files)
+        fprintf('该SNR级别没有找到结果文件 (模式: %s)\n', snr_pattern);
+        return;
+    end
+    
+    fprintf('发现 %d 个数据文件，开始处理...\n', length(mat_files));
+    
+    % 存储结果
+    results_dict = struct();
+    method_names = {};
+    
+    % 遍历计算
+    for i = 1:length(mat_files)
+        file_name = mat_files(i).name;
+        
+        % 提取方法名：取第一个 "_" 之前
+        underscore_pos = strfind(file_name, '_');
+        if ~isempty(underscore_pos)
+            method_name_display = file_name(1:underscore_pos(1)-1);
+        else
+            [~, method_name_display, ~] = fileparts(file_name);
+        end
+        
+        % 创建有效的字段名（移除特殊字符）
+        method_name_field = strrep(method_name_display, '-', '_');
+        method_name_field = strrep(method_name_field, '%', 'percent');
+        method_name_field = strrep(method_name_field, ' ', '_');
+        method_name_field = matlab.lang.makeValidName(method_name_field);
+        
+        file_path = fullfile(results_dir, file_name);
+        fprintf('\n>>> 处理方法: [%s] (文件: %s)\n', method_name_display, file_name);
+        
+        % 加载预测文件
+        [predictions, time_per_sample] = load_prediction_file(file_path, file_name);
+        if isempty(predictions)
+            continue;
+        end
+        
+        % 显示预测数据信息
+        fprintf('    数据维度: %s', mat2str(size(predictions)));
+        if time_per_sample > 0
+            fprintf(' | 单样本耗时: %.3f ms\n', time_per_sample * 1000);
+        else
+            fprintf(' | 耗时信息: 未提供\n');
+        end
+        
+        % 检查维度
+        if ~isequal(size(predictions), size(true_signals))
+            fprintf('  ⚠ 警告: 维度不匹配! 预测:%s vs 真实:%s, 跳过\n', ...
+                    mat2str(size(predictions)), mat2str(size(true_signals)));
+            continue;
+        end
+        
+        % 计算指标
+        metrics = compute_metrics_for_method(predictions, true_signals, config.fs);
+        metrics.time_per_sample = time_per_sample;
+        metrics.display_name = method_name_display;  % 保存显示名称
+        
+        % 存储结果（使用有效字段名）
+        results_dict.(method_name_field) = metrics;
+        method_names{end+1} = method_name_field;
+        
+        fprintf('  ✓ %s 计算完毕 (RRMSE=%.3f, CC=%.3f, Time=%.1fms)\n', ...
+                method_name_display, metrics.RRMSE_mean, metrics.CC_mean, time_per_sample * 1000);
+    end
+    
+    if isempty(method_names)
+        fprintf('该SNR级别没有成功计算任何方法的指标。\n');
+        return;
+    end
+    
+    % 保存结果
+    output_csv = fullfile(results_dir, sprintf('all_metrics_SNR%ddB.csv', current_snr));
+    [results_table, sorted_methods] = save_results(results_dict, method_names, output_csv);
+    
+    % 打印最终结果
+    fprintf('\n================================================================================\n');
+    fprintf('%s\n', center_text(sprintf('SNR=%ddB 最终结果排行', current_snr), 80));
+    fprintf('================================================================================\n');
+    disp(results_table);
+    
+    % 生成图表
+    plot_comparison(results_dict, sorted_methods, results_dir, sprintf('_SNR%ddB', current_snr));
+    plot_time_comparison(results_dict, sorted_methods, results_dir, sprintf('_SNR%ddB', current_snr));
+end
 
 function text_out = center_text(text_in, width)
 % 将文本居中对齐到指定宽度

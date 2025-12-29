@@ -31,7 +31,7 @@ function config = getDatasetConfig(varargin)
 
     % 默认使用全模拟数据集
     if nargin == 0
-        datasetName = 'fully_simulated';
+        datasetName = 'semi_simulated';
     else
         datasetName = varargin{1};
     end
@@ -47,8 +47,12 @@ function config = getDatasetConfig(varargin)
             config.name = '半模拟数据集';
             config.fs = 200;  % Hz
             config.windowSize = 1200;  % 样本数 (200Hz * 6s)
-            config.dataDir = fullfile(projectRoot, '生成半模拟数据', '已经生成好的数据');
-            config.description = '基于真实EEG数据生成的半模拟数据集';
+            config.dataDir = fullfile(projectRoot, '生成半模拟数据', '已经生成好的数据', 'multi_snr');
+            config.description = '基于真实EEG数据生成的半模拟数据集，包含多SNR级别';
+            
+            % 多SNR测试集配置
+            config.testSnrLevels = [-8,-6, -4, -2, 0, 2,4];
+            config.hasMultiSnrTest = true;
             
         case 'fully_simulated'
             config.name = '全模拟数据集';
@@ -56,6 +60,7 @@ function config = getDatasetConfig(varargin)
             config.windowSize = 1500;  % 样本数 (250Hz * 6s)
             config.dataDir = fullfile(projectRoot, '生成全模拟数据', '已经生成好的数据');
             config.description = '完全模拟生成的数据集,包含4种类型';
+            config.hasMultiSnrTest = false;
             
         otherwise
             error('未知的数据集: %s. 可用选项: semi_simulated, fully_simulated', datasetName);
@@ -67,8 +72,6 @@ function config = getDatasetConfig(varargin)
     config.trainPure = 'Train_Pure.mat';
     config.valContaminated = 'Val_Contaminated.mat';
     config.valPure = 'Val_Pure.mat';
-    config.testContaminated = 'Test_Contaminated.mat';
-    config.testPure = 'Test_Pure.mat';
     config.dataKey = 'data';
     
     % 生成完整路径
@@ -76,8 +79,25 @@ function config = getDatasetConfig(varargin)
     config.trainPurePath = fullfile(config.dataDir, config.trainPure);
     config.valContaminatedPath = fullfile(config.dataDir, config.valContaminated);
     config.valPurePath = fullfile(config.dataDir, config.valPure);
-    config.testContaminatedPath = fullfile(config.dataDir, config.testContaminated);
-    config.testPurePath = fullfile(config.dataDir, config.testPure);
+    
+    % 处理测试集路径 - 支持多SNR级别
+    if isfield(config, 'hasMultiSnrTest') && config.hasMultiSnrTest
+        % 多SNR测试集
+        config.testSnrPaths = struct('contaminated', {}, 'pure', {});
+        for i = 1:length(config.testSnrLevels)
+            snr = config.testSnrLevels(i);
+            config.testSnrPaths(i).contaminated = fullfile(config.dataDir, ...
+                sprintf('Test_Contaminated_SNR%ddB.mat', snr));
+            config.testSnrPaths(i).pure = fullfile(config.dataDir, ...
+                sprintf('Test_Pure_SNR%ddB.mat', snr));
+        end
+    else
+        % 单一测试集（向后兼容）
+        config.testContaminated = 'Test_Contaminated.mat';
+        config.testPure = 'Test_Pure.mat';
+        config.testContaminatedPath = fullfile(config.dataDir, config.testContaminated);
+        config.testPurePath = fullfile(config.dataDir, config.testPure);
+    end
     
     % 验证数据目录是否存在
     if ~exist(config.dataDir, 'dir')

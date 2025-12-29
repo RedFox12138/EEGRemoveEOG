@@ -1,5 +1,5 @@
 """
-基于阈值方法测试脚本 - 输出.mat格式
+基于阈值方法测试脚本 - 支持多SNR测试集
 """
 import numpy as np
 import scipy.io as sio
@@ -7,16 +7,29 @@ import os
 from time import time
 from SingleDenoise_CORRECTED import eog_removal_corrected
 
+# 导入数据集配置
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from dataset_config import get_dataset_config
 
-def load_test_data():
-    """加载测试数据"""
-    data_dir = r'D:\Pycharm_Projects\EOG Remove\生成半模拟数据\已经生成好的数据'
+
+def load_test_data_by_snr(snr_level):
+    """加载指定SNR级别的测试数据"""
+    config = get_dataset_config('semi_simulated')
     
-    import scipy.io
-    test_contaminated = scipy.io.loadmat(os.path.join(data_dir, 'Test_Contaminated.mat'))['data']
-    test_pure = scipy.io.loadmat(os.path.join(data_dir, 'Test_Pure.mat'))['data']
+    if 'test_snr_paths' in config:
+        # 多SNR测试集
+        contaminated_path = config['test_snr_paths'][snr_level]['contaminated']
+        pure_path = config['test_snr_paths'][snr_level]['pure']
+    else:
+        # 向后兼容：单一测试集
+        contaminated_path = config['test_contaminated_path']
+        pure_path = config['test_pure_path']
     
-    print(f"测试集形状: {test_contaminated.shape}")
+    test_contaminated = sio.loadmat(contaminated_path)['data']
+    test_pure = sio.loadmat(pure_path)['data']
+    
+    print(f"SNR={snr_level}dB 测试集形状: {test_contaminated.shape}")
     
     return test_contaminated, test_pure
 
@@ -82,22 +95,53 @@ def process_all_samples(contaminated_data, fs=200):
 
 
 def main():
-    print("="*60)
-    print("基于阈值的EOG去除方法测试")
-    print("="*60)
+    print("="*80)
+    print("基于阈值的EOG去除方法测试 - 多SNR测试集")
+    print("="*80)
     
-    # 加载测试数据
-    print("\n加载测试数据...")
-    test_contaminated, test_pure = load_test_data()
-    
-    # 处理所有样本
-    predictions, time_per_sample = process_all_samples(test_contaminated, fs=200)
-    
-    # 保存结果为.mat格式
+    # 获取配置
+    config = get_dataset_config('semi_simulated')
     output_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
     os.makedirs(output_dir, exist_ok=True)
     
-    pred_save_path = os.path.join(output_dir, 'Threshold_predictions.mat')
+    # 获取所有SNR级别
+    if 'test_snr_levels' in config:
+        snr_levels = config['test_snr_levels']
+        print(f"\n检测到多SNR测试集，SNR级别: {snr_levels}")
+    else:
+        snr_levels = [None]  # 单一测试集
+        print("\n使用单一测试集")
+    
+    # 对每个SNR级别进行测试
+    for snr in snr_levels:
+        if snr is not None:
+            print(f"\n{'='*80}")
+            print(f"测试 SNR = {snr} dB")
+            print(f"{'='*80}")
+        
+        # 加载测试数据
+        print("\n加载测试数据...")
+        test_contaminated, test_pure = load_test_data_by_snr(snr)
+        
+        # 处理所有样本
+        predictions, time_per_sample = process_all_samples(test_contaminated, fs=200)
+        
+        # 保存结果为.mat格式
+        if snr is not None:
+            pred_save_path = os.path.join(output_dir, f'Threshold_predictions_SNR{snr}dB.mat')
+        else:
+            pred_save_path = os.path.join(output_dir, 'Threshold_predictions.mat')
+        
+        sio.savemat(pred_save_path, {
+            'predictions': predictions,
+            'time_per_sample': time_per_sample
+        })
+        
+        print(f"\n✓ 结果已保存到: {pred_save_path}")
+    
+    print(f"\n{'='*80}")
+    print("所有SNR级别测试完成!")
+    print(f"{'='*80}")
     
     sio.savemat(pred_save_path, {
         'predictions': predictions,

@@ -63,11 +63,28 @@ class SupervisedDataset(Dataset):
         return noisy_norm, clean_norm, norm
 
 
-def get_test_data():
-    """加载测试数据"""
-    test_x = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
-    test_y = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+def load_test_data_by_snr(snr_db):
+    """
+    根据SNR加载测试数据
+    """
+    contaminated_path = TEST_SNR_PATHS[snr_db]['contaminated']
+    pure_path = TEST_SNR_PATHS[snr_db]['pure']
+    
+    test_x = scipy.io.loadmat(contaminated_path)[DATA_KEY]
+    test_y = scipy.io.loadmat(pure_path)[DATA_KEY]
     return test_x, test_y
+
+
+def get_test_data():
+    """加载测试数据（兼容单一测试集和多SNR）"""
+    if TEST_CONTAMINATED_PATH is not None:
+        # 单一测试集模式
+        test_x = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+        test_y = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+        return test_x, test_y
+    else:
+        # 多SNR模式，返回None（由调用者循环处理）
+        return None, None
 
 
 def test_model(model_path, output_suffix, device):
@@ -90,74 +107,99 @@ def test_model(model_path, output_suffix, device):
     
     # 创建模型并加载权重
     model = DATNet(in_channels=1, base_channels=32).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    checkpoint = torch.load(model_path, map_location=device)
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        model.load_state_dict(checkpoint['model_state_dict'])
+    else:
+        model.load_state_dict(checkpoint)
     print(f'✓ 成功加载模型: {model_path}')
     
-    # 加载测试数据
-    test_x, test_y = get_test_data()
-    print(f'测试集样本数: {len(test_x)}')
+    # 检查测试模式（多SNR或单一）
+    if TEST_SNR_LEVELS:
+        print(f'\n多SNR测试模式，SNR级别: {TEST_SNR_LEVELS}')
+        snr_levels = TEST_SNR_LEVELS
+    else:
+        print('\n单一测试集模式')
+        snr_levels = [None]
     
-    test_dataset = SupervisedDataset(test_x, test_y)
-    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    # 对每个SNR级别进行测试
+    for snr_db in snr_levels:
+        if snr_db is not None:
+            print(f'\n{"="*70}')
+            print(f'测试 SNR = {snr_db} dB')
+            print('='*70)
+            test_x, test_y = load_test_data_by_snr(snr_db)
+            save_suffix = f'_SNR{snr_db}dB'
+        else:
+            test_x, test_y = get_test_data()
+            save_suffix = ''
+        
+        print(f'测试集样本数: {len(test_x)}')
+        
+        test_dataset = SupervisedDataset(test_x, test_y)
+        test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+        
+        # 评估
+        model.eval()
+        all_preds = []
+        all_eog_preds = []
+        all_targets = []
+        sample_count = 0
+        start = time()
+        
+        with torch.no_grad():
+            for noisy, clean, norm in test_loader:
+                sample_count += noisy.shape[0]
+                
+                # 与训练时保持一致：输入归一化数据，在循环中乘回 norm，然后传入模型
+                noisy_t = noisy.float().unsqueeze(1).to(device)  # (B, 1, L) - 归一化的
+                norm_t = norm.float().view(-1, 1, 1).to(device)  # (B, 1, 1)
+                noisy_scaled = noisy_t * norm_t  # 恢复原始尺度（与训练时一致）
+                
+                # 前向传播 - 使用原始尺度的数据（与训练时一致）
+                eeg_clean, eog_artifact = model(noisy_scaled)
+                
+                # 模型输出已经是原始尺度，targets也要恢复到原始尺度
+                all_preds.append(eeg_clean.squeeze(1).cpu().numpy())
+                all_eog_preds.append(eog_artifact.squeeze(1).cpu().numpy())
+                # clean是归一化的，需要乘回norm恢复原始尺度
+                all_targets.append(clean.cpu().numpy() * norm.cpu().numpy().reshape(-1, 1))
+        
+        total_time = time() - start
+        time_per_sample = total_time / max(1, sample_count)
+        
+        # 合并结果
+        all_preds = np.concatenate(all_preds, axis=0)
+        all_eog_preds = np.concatenate(all_eog_preds, axis=0)
+        all_targets = np.concatenate(all_targets, axis=0)
+        
+        print(f'推理完成! 单样本时间: {time_per_sample*1000:.3f} ms')
+        
+        # 计算评价指标
+        print('\n计算评价指标...')
+        metrics = compute_all_metrics(all_preds, all_targets, fs=SAMPLING_RATE)
+        print_metrics(metrics, prefix='测试集')
+        
+        # 验证解耦一致性
+        print('\n验证解耦一致性...')
+        reconstructed = all_preds + all_eog_preds
+        original = test_x
+        consistency_error = np.mean((reconstructed - original) ** 2)
+        print(f'重建一致性MSE: {consistency_error:.6f}')
+        
+        # 保存结果（带SNR标识）
+        out_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
+        os.makedirs(out_dir, exist_ok=True)
+        save_path = os.path.join(out_dir, f'DAT-Net-Unsupervised-v2_{output_suffix}_predictions{save_suffix}.mat')
+        scipy.io.savemat(save_path, {
+            'predictions': all_preds,
+            'eog_artifacts': all_eog_preds,
+            'time_per_sample': time_per_sample,
+        })
+        print(f'\n预测结果已保存: {save_path}')
     
-    # 评估
-    model.eval()
-    all_preds = []
-    all_eog_preds = []
-    all_targets = []
-    sample_count = 0
-    start = time()
-    
-    with torch.no_grad():
-        for noisy, clean, norm in test_loader:
-            sample_count += noisy.shape[0]
-            
-            # 与训练时保持一致：输入归一化数据，在循环中乘回 norm，然后传入模型
-            noisy_t = noisy.float().unsqueeze(1).to(device)  # (B, 1, L) - 归一化的
-            norm_t = norm.float().view(-1, 1, 1).to(device)  # (B, 1, 1)
-            noisy_scaled = noisy_t * norm_t  # 恢复原始尺度（与训练时一致）
-            
-            # 前向传播 - 使用原始尺度的数据（与训练时一致）
-            eeg_clean, eog_artifact = model(noisy_scaled)
-            
-            # 模型输出已经是原始尺度，targets也要恢复到原始尺度
-            all_preds.append(eeg_clean.squeeze(1).cpu().numpy())
-            all_eog_preds.append(eog_artifact.squeeze(1).cpu().numpy())
-            # clean是归一化的，需要乘回norm恢复原始尺度
-            all_targets.append(clean.cpu().numpy() * norm.cpu().numpy().reshape(-1, 1))
-    
-    total_time = time() - start
-    time_per_sample = total_time / max(1, sample_count)
-    
-    # 合并结果
-    all_preds = np.concatenate(all_preds, axis=0)
-    all_eog_preds = np.concatenate(all_eog_preds, axis=0)
-    all_targets = np.concatenate(all_targets, axis=0)
-    
-    print(f'推理完成! 单样本时间: {time_per_sample*1000:.3f} ms')
-    
-    # 计算评价指标
-    print('\n计算评价指标...')
-    metrics = compute_all_metrics(all_preds, all_targets, fs=SAMPLING_RATE)
-    print_metrics(metrics, prefix='测试集')
-    
-    # 验证解耦一致性
-    print('\n验证解耦一致性...')
-    reconstructed = all_preds + all_eog_preds
-    original = test_x
-    consistency_error = np.mean((reconstructed - original) ** 2)
-    print(f'重建一致性MSE: {consistency_error:.6f}')
-    
-    # 保存结果
-    out_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
-    os.makedirs(out_dir, exist_ok=True)
-    save_path = os.path.join(out_dir, f'DAT-Net-Unsupervised-v2_{output_suffix}_predictions.mat')
-    scipy.io.savemat(save_path, {
-        'predictions': all_preds,
-        'eog_artifacts': all_eog_preds,
-        'time_per_sample': time_per_sample,
-    })
-    print(f'\n预测结果已保存: {save_path}')
+    print('\n' + '='*70)
+    print('全部SNR测试完成！')
     print('='*70)
 
 

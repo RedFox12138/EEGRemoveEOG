@@ -4,7 +4,7 @@ import time
 import scipy.io
 import torch
 import torch.nn as nn
-import torch.optim as o ptim
+import torch.optim as optim
 import torch.utils.data as Data
 import numpy as np
 
@@ -54,19 +54,25 @@ class EEGDatasetASNetStyle(Data.Dataset):
 def load_data(data_dir):
     train_input = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
     verify_input = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
-    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
 
     train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
     verify_output = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
-    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
 
     train_set = EEGDatasetASNetStyle(train_input, train_output, is_train=True)
     val_set = EEGDatasetASNetStyle(verify_input, verify_output, is_train=False)
-    test_set = EEGDatasetASNetStyle(test_input, test_output, is_train=False)
 
     train_loader = Data.DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
     val_loader = Data.DataLoader(val_set, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
-    test_loader = Data.DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
+    
+    # 多SNR配置下不加载测试集
+    if TEST_CONTAMINATED_PATH is not None:
+        test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+        test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+        test_set = EEGDatasetASNetStyle(test_input, test_output, is_train=False)
+        test_loader = Data.DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
+    else:
+        test_loader = None
+        print("多SNR测试集配置，训练时不加载测试集")
 
     return train_loader, val_loader, test_loader
 
@@ -144,7 +150,7 @@ def main():
     data_dir = DATA_DIR  # 从data_config导入
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    train_loader, val_loader, test_loader = load_data(data_dir)
+    train_loader, val_loader, _ = load_data(data_dir)  # test_loader在多SNR配置下为None
 
     model = EEGNetMorletWindowCBAMDropout(device=device)
     model.to(device)

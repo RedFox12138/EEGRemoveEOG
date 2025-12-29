@@ -1,0 +1,26 @@
+{
+  "trial_number": 45,
+  "best_rrmse": 0.6508641839027405,
+  "corresponding_loss": 33.23591995239258,
+  "timestamp": "2025-12-27 09:29:08",
+  "parameters": {
+    "learning_rate": 0.02914632759933304,
+    "weight_decay": 3.0162691408032546e-06,
+    "lambda_rec": 0.7402603260239938,
+    "lambda_con": 1.5734500945814136,
+    "lambda_teacher": 0.5620633957002431,
+    "lambda_n2v": 0.2287902372333739,
+    "lambda_band": 0.29790974972068235,
+    "lambda_low": 0.06630350426620805,
+    "lambda_decor": 0.3393320679545625,
+    "lambda_content": 1.4131338175273647,
+    "mask_base": 0.05000882099902099,
+    "boost_scale": 0.11437730106023324,
+    "gamma_art_weight": 2.8845684550289423,
+    "artifact_win_size": 264.0,
+    "mask_neighborhood": 7.0,
+    "teacher_cutoff": 5.197457373000224,
+    "lowpass_cutoff": 1.849810301795507,
+    "teacher_threshold": 0.8968825392989637
+  }
+}

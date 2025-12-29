@@ -207,7 +207,7 @@ function [T_formatted, T_numeric] = compute_real_data_frequency_metrics()
         row.MAE_beta_mean = mean(MAE_beta_list, 'omitnan');
         row.MAE_beta_std = std(MAE_beta_list, 0, 'omitnan');
         row.Time_ms_mean = mean(Time_ms_list, 'omitnan');
-        row.Time_ms_std = std(Time_ms_list, 0, 'omitnan');
+        row.Time_ms_std = std(Time_ms_list, 'omitnan');
 
         numeric_rows(end+1) = row; %#ok<AGROW>
         fprintf('  ✓ 完成 (ΔER_δ=%.2f%%, MAE_δ=%.4f, MAE_θ=%.4f, MAE_α=%.4f, MAE_β=%.4f)\n', ...

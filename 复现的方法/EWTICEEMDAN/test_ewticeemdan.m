@@ -24,22 +24,85 @@ addpath('D:\Pycharm_Projects\EOG Remove\复现的方法\EWTICEEMDAN');
 addpath('D:\Pycharm_Projects\EOG Remove\复现的方法\EWTICEEMDAN\ICEEMDAN_wp');
 addpath('D:\Pycharm_Projects\EOG Remove\复现的方法');
 
-%% 加载测试数据
+%% 确定测试模式
 fprintf('==============================================\n');
 fprintf('       EWT-ICEEMDAN 测试脚本\n');
 fprintf('==============================================\n\n');
 
-fprintf('加载数据...\n');
+% 检查是否是多SNR测试配置
+if cfg.hasMultiSnrTest
+    snr_levels = cfg.testSnrLevels;
+    fprintf('检测到多SNR测试配置\n');
+    fprintf('SNR级别: [%s] dB\n\n', join(string(snr_levels), ', '));
+else
+    snr_levels = nan;  % 单一测试集
+    fprintf('使用单一测试集\n\n');
+end
 
-data_contaminated = load(cfg.testContaminatedPath);
-data_clean = load(cfg.testPurePath);
+%% 确定测试模式
+fprintf('==============================================\n');
+fprintf('       EWT-ICEEMDAN 测试脚本\n');
+fprintf('==============================================\n\n');
 
-test_contaminated = data_contaminated.(cfg.dataKey);
-test_clean = data_clean.(cfg.dataKey);
+% 检查是否是多SNR测试配置
+if cfg.hasMultiSnrTest
+    snr_levels = cfg.testSnrLevels;
+    fprintf('检测到多SNR测试配置\n');
+    fprintf('SNR级别: [%s] dB\n\n', join(string(snr_levels), ', '));
+else
+    snr_levels = nan;  % 单一测试集
+    fprintf('使用单一测试集\n\n');
+end
 
-num_test = size(test_contaminated, 1);
-fprintf('测试集样本数: %d\n', num_test);
-fprintf('信号长度: %d\n\n', size(test_contaminated, 2));
+%% 参数设置
+fs = cfg.fs;
+cutoff_freq = 4;  % EWT截止频率
+sample_entropy_threshold = 0.4;  % 样本熵阈值
+Nstd = 0.2;  % 噪声标准差
+NR = 100;    % 迭代次数
+MaxIter = 10; % 最大迭代次数
+
+fprintf('参数设置:\n');
+fprintf('  cutoff_freq = %.0f Hz\n', cutoff_freq);
+fprintf('  sample_entropy_threshold = %.2f\n', sample_entropy_threshold);
+fprintf('  ICEEMDAN: Nstd=%.1f, NR=%d, MaxIter=%d\n\n', Nstd, NR, MaxIter);
+
+%% 输出目录
+output_dir = 'D:\Pycharm_Projects\EOG Remove\复现的方法\results';
+if ~exist(output_dir, 'dir')
+    mkdir(output_dir);
+end
+
+%% 循环处理每个SNR级别（或单一测试集）
+for snr_idx = 1:length(snr_levels)
+    if ~isnan(snr_levels(1))
+        % 多SNR模式
+        current_snr = snr_levels(snr_idx);
+        fprintf('\n========== 处理 SNR = %d dB ==========\n', current_snr);
+        
+        % 获取当前SNR的测试集路径 - 使用索引访问
+        snr_idx_in_list = find(cfg.testSnrLevels == current_snr);
+        test_contaminated_path = cfg.testSnrPaths(snr_idx_in_list).contaminated;
+        test_pure_path = cfg.testSnrPaths(snr_idx_in_list).pure;
+    else
+        % 单一测试集模式
+        fprintf('\n========== 处理测试集 ==========\n');
+        test_contaminated_path = cfg.testContaminatedPath;
+        test_pure_path = cfg.testPurePath;
+    end
+    
+    %% 加载测试数据
+    fprintf('加载数据...\n');
+    
+    data_contaminated = load(test_contaminated_path);
+    data_clean = load(test_pure_path);
+    
+    test_contaminated = data_contaminated.(cfg.dataKey);
+    test_clean = data_clean.(cfg.dataKey);
+    
+    num_test = size(test_contaminated, 1);
+    fprintf('测试集样本数: %d\n', num_test);
+    fprintf('信号长度: %d\n\n', size(test_contaminated, 2));
 
 %% 运行EWT-ICEEMDAN去噪
 fprintf('开始EWT-ICEEMDAN去噪...\n');
@@ -60,7 +123,13 @@ fprintf('  cutoff_freq = %.0f Hz\n', cutoff_freq);
 fprintf('  sample_entropy_threshold = %.2f\n', sample_entropy_threshold);
 fprintf('  ICEEMDAN: Nstd=%.1f, NR=%d, MaxIter=%d\n\n', Nstd, NR, MaxIter);
 
-tic;
+    %% 运行EWT-ICEEMDAN去噪
+    fprintf('开始EWT-ICEEMDAN去噪...\n');
+    fprintf('⚠️  警告: ICEEMDAN分解较慢,可能需要数小时!\n\n');
+    
+    predictions = zeros(size(test_contaminated));
+    
+    tic;
 
 for i = 1:num_test
     close all
@@ -129,21 +198,28 @@ fprintf('总耗时: %.2f 秒 (%.1f 分钟)\n', total_time, total_time/60);
 fprintf('单样本处理时间: %.3f ms\n\n', time_per_sample * 1000);
 
 %% 保存预测结果
-output_dir = 'D:\Pycharm_Projects\EOG Remove\复现的方法\results';
-if ~exist(output_dir, 'dir')
-    mkdir(output_dir);
-end
+    if ~isnan(snr_levels(1))
+        % 多SNR模式: 保存带SNR标识的文件
+        pred_save_path = fullfile(output_dir, sprintf('EWTICEEMDAN_predictions_SNR%ddB.mat', current_snr));
+    else
+        % 单一测试集模式
+        pred_save_path = fullfile(output_dir, 'EWTICEEMDAN_predictions.mat');
+    end
+    
+    save(pred_save_path, 'predictions', 'time_per_sample');
+    fprintf('预测结果已保存: %s\n', pred_save_path);
 
-pred_save_path = fullfile(output_dir, 'EWTICEEMDAN_predictions.mat');
-save(pred_save_path, 'predictions', 'time_per_sample');
-
-fprintf('预测结果已保存: %s\n', pred_save_path);
+end  % SNR循环结束
 
 %% 打印汇总
-fprintf('==============================================\n');
+fprintf('\n==============================================\n');
 fprintf('           测试完成汇总\n');
 fprintf('==============================================\n');
-fprintf('测试样本数:         %d\n', num_test);
-fprintf('单样本处理时间:     %.3f ms\n', time_per_sample * 1000);
+if ~isnan(snr_levels(1))
+    fprintf('多SNR测试模式\n');
+    fprintf('SNR级别:            [%s] dB\n', join(string(snr_levels), ', '));
+else
+    fprintf('单一测试集模式\n');
+end
 fprintf('==============================================\n');
 fprintf('\n✓ 完成！请运行统一指标计算脚本来评估所有方法。\n');

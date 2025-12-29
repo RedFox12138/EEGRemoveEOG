@@ -93,28 +93,47 @@ class SupervisedDataset(Dataset):
 
 
 def get_data():
-    """加载20%训练数据和验证数据"""
-    # 加载完整训练集
-    full_train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
-    full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
+    """加载微调数据和验证数据"""
+    print(f"\n加载微调数据集（{int(FINETUNE_RATIO*100)}%训练数据）...")
     
-    # 取前20%数据
-    num_samples = int(len(full_train_x) * 0.1)
-    train_x = full_train_x[:num_samples]
-    train_y = full_train_y[:num_samples]
+    # 检查是否有预生成的微调数据集（半模拟数据集）
+    if os.path.exists(FINETUNE_CONTAMINATED_PATH) and os.path.exists(FINETUNE_PURE_PATH):
+        # 使用预先生成的微调数据集（均匀采样自5种SNR）
+        print(f"✓ 检测到预生成的微调数据集")
+        train_x = scipy.io.loadmat(FINETUNE_CONTAMINATED_PATH)[DATA_KEY]
+        train_y = scipy.io.loadmat(FINETUNE_PURE_PATH)[DATA_KEY]
+        print(f"✓ 加载微调数据: {train_x.shape}")
+        print(f"  来源: 从5种SNR中均匀采样{int(FINETUNE_RATIO*100)}%训练数据")
+    else:
+        # 回退到旧逻辑：从完整训练集前面取比例数据（全模拟数据集）
+        print(f"✓ 未找到预生成的微调数据集，使用传统方式（从完整训练集前面取数据）")
+        full_train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+        full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
+        
+        # 取前N%数据
+        num_samples = int(len(full_train_x) * FINETUNE_RATIO)
+        train_x = full_train_x[:num_samples]
+        train_y = full_train_y[:num_samples]
+        print(f"✓ 加载微调数据: {train_x.shape}")
+        print(f"  来源: 完整训练集的前{int(FINETUNE_RATIO*100)}%")
     
     # 验证集
     val_x = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
     val_y = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
+    print(f"✓ 加载验证数据: {val_x.shape}")
     
     return train_x, train_y, val_x, val_y
 
 
 def get_test_data():
-    """加载测试数据"""
-    test_x = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
-    test_y = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
-    return test_x, test_y
+    """加载测试数据（仅在单一测试集模式下使用，多SNR模式下跳过）"""
+    if TEST_CONTAMINATED_PATH is not None:
+        test_x = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+        test_y = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+        return test_x, test_y
+    else:
+        # 多SNR模式，微调过程中不使用测试集
+        return None, None
 
 
 def freeze_backbone(model):
@@ -291,6 +310,12 @@ def test_on_testset(model, device, model_suffix):
     
     # 加载测试数据
     test_x, test_y = get_test_data()
+    
+    # 如果是多SNR模式，跳过测试集评估
+    if test_x is None:
+        print('⚠️  多SNR测试集配置，请使用 test_finetuned.py 进行完整测试')
+        return
+    
     print(f'测试集样本数: {len(test_x)}')
     
     test_dataset = SupervisedDataset(test_x, test_y)
@@ -378,7 +403,7 @@ def main():
     # 创建模型并加载预训练权重
     model = DATNet(in_channels=1, base_channels=32).to(device)
 
-    pretrained_path = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best.pth'
+    pretrained_path = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best_old.pth'
     if os.path.exists(pretrained_path):
         model.load_state_dict(torch.load(pretrained_path, map_location=device))
         print(f'✓ 加载预训练模型: {pretrained_path}')

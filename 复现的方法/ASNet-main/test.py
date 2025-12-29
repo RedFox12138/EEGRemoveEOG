@@ -1,5 +1,5 @@
 """
-ASNet测试脚本
+ASNet测试脚本 - 支持多SNR测试集
 加载最佳模型,在测试集上进行推理,保存预测结果为.mat格式
 """
 
@@ -7,6 +7,7 @@ import scipy.io
 import torch
 import torch.utils.data as Data
 import os
+import sys
 import numpy as np
 from time import time
 from torch.utils.data import Dataset
@@ -14,6 +15,10 @@ from ASNet import ASNet
 
 # 导入配置
 from config import *
+
+# 导入数据集配置
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from dataset_config import get_dataset_config
 
 BATCH_SIZE = 50
 
@@ -44,10 +49,23 @@ class EEGDataset(Dataset):
 
         return noisy_normalized, clean, norm_factor
 
-def load_test_data():
-    """加载测试数据"""
-    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
-    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+def load_test_data_by_snr(snr_level):
+    """加载指定SNR级别的测试数据"""
+    config = get_dataset_config('semi_simulated')
+    
+    if 'test_snr_paths' in config:
+        # 多SNR测试集
+        contaminated_path = config['test_snr_paths'][snr_level]['contaminated']
+        pure_path = config['test_snr_paths'][snr_level]['pure']
+    else:
+        # 向后兼容：单一测试集
+        contaminated_path = config['test_contaminated_path']
+        pure_path = config['test_pure_path']
+    
+    test_input = scipy.io.loadmat(contaminated_path)[config['data_key']]
+    test_output = scipy.io.loadmat(pure_path)[config['data_key']]
+    
+    print(f"SNR={snr_level}dB 测试集形状: {test_input.shape}")
     
     test_dataset = EEGDataset(test_input, test_output, is_train=False)
     test_loader = Data.DataLoader(
@@ -103,9 +121,9 @@ def test_model(model, device, test_loader):
 
 
 def main():
-    print("="*60)
-    print("ASNet 测试脚本")
-    print("="*60)
+    print("="*80)
+    print("ASNet 测试脚本 - 多SNR测试集")
+    print("="*80)
     
     # 设置设备
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -124,33 +142,53 @@ def main():
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
     
-    # 加载测试数据
-    print("加载测试数据...")
-    test_loader, test_targets = load_test_data()
-    print(f"测试集样本数: {len(test_targets)}")
-    
-    # 进行推理
-    print("\n开始推理...")
-    predictions, targets, time_per_sample = test_model(model, device, test_loader)
-    
-    print(f"推理完成! 单样本推理时间: {time_per_sample*1000:.3f}ms")
-    
-    # 保存预测结果为.mat格式
+    # 获取配置
+    config = get_dataset_config('semi_simulated')
     output_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
     os.makedirs(output_dir, exist_ok=True)
     
-    pred_save_path = os.path.join(output_dir, 'ASNet_predictions.mat')
+    # 获取所有SNR级别
+    if 'test_snr_levels' in config:
+        snr_levels = config['test_snr_levels']
+        print(f"\n检测到多SNR测试集，SNR级别: {snr_levels}")
+    else:
+        snr_levels = [None]  # 单一测试集
+        print("\n使用单一测试集")
     
-    scipy.io.savemat(pred_save_path, {
-        'predictions': predictions,
-        'time_per_sample': time_per_sample
-    })
+    # 对每个SNR级别进行测试
+    for snr in snr_levels:
+        if snr is not None:
+            print(f"\n{'='*80}")
+            print(f"测试 SNR = {snr} dB")
+            print(f"{'='*80}")
+        
+        # 加载测试数据
+        print("\n加载测试数据...")
+        test_loader, test_targets = load_test_data_by_snr(snr)
+        print(f"测试集样本数: {len(test_targets)}")
+        
+        # 进行推理
+        print("\n开始推理...")
+        predictions, targets, time_per_sample = test_model(model, device, test_loader)
+        
+        print(f"推理完成! 单样本推理时间: {time_per_sample*1000:.3f}ms")
+        
+        # 保存预测结果为.mat格式
+        if snr is not None:
+            pred_save_path = os.path.join(output_dir, f'ASNet_predictions_SNR{snr}dB.mat')
+        else:
+            pred_save_path = os.path.join(output_dir, 'ASNet_predictions.mat')
+        
+        scipy.io.savemat(pred_save_path, {
+            'predictions': predictions,
+            'time_per_sample': time_per_sample
+        })
+        
+        print(f"\n✓ 结果已保存到: {pred_save_path}")
     
-    print(f"\n预测结果已保存为.mat格式: {pred_save_path}")
-    print(f"预测结果形状: {predictions.shape}")
-    print(f"单样本推理时间: {time_per_sample*1000:.3f}ms")
-    print("\n✓ 完成！请运行统一指标计算脚本来评估所有方法。")
-    print("="*60)
+    print(f"\n{'='*80}")
+    print("所有SNR级别测试完成!")
+    print(f"{'='*80}")
 
 
 

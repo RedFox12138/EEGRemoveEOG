@@ -66,19 +66,16 @@ def get_data(data_path, batch_size):
     # 使用配置文件中的路径
     train_input = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
     verify_input = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
-    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
     
     train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
     verify_output = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
-    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
     
-    print(f"加载数据: 训练集={train_input.shape}, 验证集={verify_input.shape}, 测试集={test_input.shape}")
+    print(f"加载数据: 训练集={train_input.shape}, 验证集={verify_input.shape}")
     print(f"时间点数量: {train_input.shape[1]}")
-    print(f"训练集: {len(train_input)}, 验证集: {len(verify_input)}, 测试集: {len(test_input)}")
+    print(f"训练集: {len(train_input)}, 验证集: {len(verify_input)}")
 
     train_dataset = EEGDataset(train_input, train_output, is_train=True)
     verify_dataset = EEGDataset(verify_input, verify_output, is_train=False)
-    test_dataset = EEGDataset(test_input, test_output, is_train=False)
 
     train_loader = DataLoader(
         dataset=train_dataset,
@@ -92,11 +89,20 @@ def get_data(data_path, batch_size):
         shuffle=False
     )
 
-    test_loader = DataLoader(
-        dataset=test_dataset,
-        batch_size=batch_size,
-        shuffle=False
-    )
+    # 测试集仅在可用时加载（多SNR配置下不需要）
+    if TEST_CONTAMINATED_PATH is not None:
+        test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+        test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+        print(f"测试集: {len(test_input)}")
+        test_dataset = EEGDataset(test_input, test_output, is_train=False)
+        test_loader = DataLoader(
+            dataset=test_dataset,
+            batch_size=batch_size,
+            shuffle=False
+        )
+    else:
+        test_loader = None
+        print("多SNR测试集配置，训练时不加载测试集")
     
     # 返回数据加载器和时间点数量
     input_length = train_input.shape[1]
@@ -321,11 +327,11 @@ def main():
 
     # 学习率调度器 - ReduceLROnPlateau，最多衰减到原始学习率的1/10
     scheduler_I = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer_I, mode='min', factor=0.5, patience=50, 
+        optimizer_I, mode='min', factor=0.5, patience=100,
         min_lr=args.lr * 0.1, verbose=True
     )
     scheduler_M = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer_M, mode='min', factor=0.5, patience=50, 
+        optimizer_M, mode='min', factor=0.5, patience=100,
         min_lr=args.lr * 0.1, verbose=True
     )
 
@@ -339,7 +345,7 @@ def main():
     best_val_loss = float('inf')
     best_acc = 0
     epochs_no_improve = 0  # Early stopping计数器
-    PATIENCE = 50  # Early stopping patience
+    PATIENCE = 100  # Early stopping patience
     begin_time = time()
 
     for epoch in range(args.epochs):

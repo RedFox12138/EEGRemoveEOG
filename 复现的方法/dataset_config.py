@@ -16,21 +16,22 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 数据集配置字典
 DATASET_CONFIGS = {
-    # 半模拟数据集 (原始数据集)
+    # 半模拟数据集 (多SNR版本)
     'semi_simulated': {
         'name': '半模拟数据集',
         'sampling_rate': 200.0,  # Hz
         'window_duration': 6,  # seconds
         'window_size': 1200,  # 200 * 6
-        'data_dir': os.path.join(PROJECT_ROOT, '生成半模拟数据', '已经生成好的数据'),
+        'data_dir': os.path.join(PROJECT_ROOT, '生成半模拟数据', '已经生成好的数据', 'multi_snr'),
         'train_contaminated': 'Train_Contaminated.mat',
         'train_pure': 'Train_Pure.mat',
         'val_contaminated': 'Val_Contaminated.mat',
         'val_pure': 'Val_Pure.mat',
-        'test_contaminated': 'Test_Contaminated.mat',
-        'test_pure': 'Test_Pure.mat',
+        'test_snr_levels': [-8,-6, -4, -2, 0, 2,4],  # 多个SNR级别的测试集
+        'test_contaminated_template': 'Test_Contaminated_SNR{}dB.mat',  # 模板，{}会被替换为SNR值
+        'test_pure_template': 'Test_Pure_SNR{}dB.mat',
         'data_key': 'data',  # .mat文件中的key
-        'description': '基于真实EEG数据生成的半模拟数据集,采样率200Hz'
+        'description': '基于真实EEG数据生成的半模拟数据集,采样率200Hz,包含5种SNR级别的测试集'
     },
     
     # 全模拟数据集 (新数据集)
@@ -52,7 +53,7 @@ DATASET_CONFIGS = {
 }
 
 # 默认使用的数据集 (可以在这里切换)
-DEFAULT_DATASET = 'fully_simulated'  # 改为 'semi_simulated' 可切换回半模拟数据
+DEFAULT_DATASET = 'semi_simulated'  # 改为 'semi_simulated' 可切换回半模拟数据
 
 
 def get_dataset_config(dataset_name=None):
@@ -79,8 +80,22 @@ def get_dataset_config(dataset_name=None):
     config['train_pure_path'] = os.path.join(config['data_dir'], config['train_pure'])
     config['val_contaminated_path'] = os.path.join(config['data_dir'], config['val_contaminated'])
     config['val_pure_path'] = os.path.join(config['data_dir'], config['val_pure'])
-    config['test_contaminated_path'] = os.path.join(config['data_dir'], config['test_contaminated'])
-    config['test_pure_path'] = os.path.join(config['data_dir'], config['test_pure'])
+    
+    # 处理测试集路径 - 支持多SNR级别
+    if 'test_snr_levels' in config:
+        # 多SNR测试集
+        config['test_snr_paths'] = {}
+        for snr in config['test_snr_levels']:
+            config['test_snr_paths'][snr] = {
+                'contaminated': os.path.join(config['data_dir'], 
+                                            config['test_contaminated_template'].format(snr)),
+                'pure': os.path.join(config['data_dir'], 
+                                    config['test_pure_template'].format(snr))
+            }
+    else:
+        # 单一测试集（向后兼容）
+        config['test_contaminated_path'] = os.path.join(config['data_dir'], config['test_contaminated'])
+        config['test_pure_path'] = os.path.join(config['data_dir'], config['test_pure'])
     
     return config
 

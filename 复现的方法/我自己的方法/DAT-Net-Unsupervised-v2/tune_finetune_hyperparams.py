@@ -12,6 +12,8 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import optuna
 from time import time
+import json
+from datetime import datetime
 
 # 添加路径以导入相关模块
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -22,7 +24,6 @@ if os.path.isdir(datnet_dir):
 
 # 导入数据配置
 from config import *
-    sys.path.insert(0, datnet_dir)
 sys.path.insert(0, current_dir)
 sys.path.append(os.path.dirname(os.path.dirname(current_dir)))
 
@@ -42,7 +43,29 @@ BATCH_SIZE = 256
 SAMPLING_RATE = 200.0
 DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 EPOCHS = 1000  # 调优时减少epoch数以加快速度
-PRETRAINED_PATH = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best.pth'
+PRETRAINED_PATH = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best_old.pth'
+
+# 全局变量：记录当前最佳参数
+BEST_PARAMS_LOG_FILE = 'best_params_finetune_live.json'
+global_best_rrmse = float('inf')
+
+def save_best_params(trial_number, rrmse, loss, params):
+    """
+    实时保存当前最佳参数到日志文件
+    """
+    best_params = {
+        'trial_number': trial_number,
+        'best_rrmse': float(rrmse),
+        'corresponding_loss': float(loss),
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'parameters': {k: float(v) if isinstance(v, (int, float, np.number)) else v for k, v in params.items()}
+    }
+    
+    with open(BEST_PARAMS_LOG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(best_params, f, indent=2, ensure_ascii=False)
+    
+    print(f"\n🎯 发现更佳参数！已更新日志: {BEST_PARAMS_LOG_FILE}")
+    print(f"   Trial #{trial_number}: RRMSE={rrmse:.6f}, Loss={loss:.6f}")
 
 
 class SupervisedDataset(Dataset):
@@ -68,18 +91,34 @@ class SupervisedDataset(Dataset):
 
 
 def get_data():
-    """加载20%训练数据和验证数据"""
-    full_train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
-    full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
+    """加载微调数据和验证数据"""
+    print(f"\n加载微调数据集（{int(FINETUNE_RATIO*100)}%训练数据）...")
     
-    # 取前20%数据
-    num_samples = int(len(full_train_x) * 0.2)
-    train_x = full_train_x[:num_samples]
-    train_y = full_train_y[:num_samples]
+    # 检查是否有预生成的微调数据集（半模拟数据集）
+    if os.path.exists(FINETUNE_CONTAMINATED_PATH) and os.path.exists(FINETUNE_PURE_PATH):
+        # 使用预先生成的微调数据集（均匀采样自5种SNR）
+        print(f"✓ 检测到预生成的微调数据集")
+        train_x = scipy.io.loadmat(FINETUNE_CONTAMINATED_PATH)[DATA_KEY]
+        train_y = scipy.io.loadmat(FINETUNE_PURE_PATH)[DATA_KEY]
+        print(f"✓ 加载微调数据: {train_x.shape}")
+        print(f"  来源: 从5种SNR中均匀采样{int(FINETUNE_RATIO*100)}%训练数据")
+    else:
+        # 回退到旧逻辑：从完整训练集前面取比例数据（全模拟数据集）
+        print(f"✓ 未找到预生成的微调数据集，使用传统方式（从完整训练集前面取数据）")
+        full_train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
+        full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
+        
+        # 取前N%数据
+        num_samples = int(len(full_train_x) * FINETUNE_RATIO)
+        train_x = full_train_x[:num_samples]
+        train_y = full_train_y[:num_samples]
+        print(f"✓ 加载微调数据: {train_x.shape}")
+        print(f"  来源: 完整训练集的前{int(FINETUNE_RATIO*100)}%")
     
     # 验证集
-    val_x = scipy.io.loadmat(f'{data_dir}/Val_Contaminated.mat')['data']
-    val_y = scipy.io.loadmat(f'{data_dir}/Val_Pure.mat')['data']
+    val_x = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
+    val_y = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
+    print(f"✓ 加载验证数据: {val_x.shape}")
     
     return train_x, train_y, val_x, val_y
 
@@ -121,62 +160,68 @@ def train_and_validate(model, train_loader, val_loader, optimizer, schedulers,
                        grad_clip, epochs):
     """训练和验证"""
     best_val_loss = float('inf')
-    
+    best_val_rrmse = float('inf')
+    global global_best_rrmse
     for epoch in range(1, epochs + 1):
         # 训练
         model.train()
         train_losses = []
-        
         for noisy, clean, norm in train_loader:
             noisy = noisy.float().unsqueeze(1).to(DEVICE)
             clean = clean.float().unsqueeze(1).to(DEVICE)
             norm = norm.float().to(DEVICE).view(-1, 1, 1)
-            
             noisy_scaled = noisy * norm
             clean_scaled = clean * norm
-            
             optimizer.zero_grad()
-            
             eeg_clean, _ = model(noisy_scaled)
-            
-            # MSE损失（与finetune_adaptive.py保持一致）
             loss = F.mse_loss(eeg_clean, clean_scaled)
-            
             loss.backward()
             if grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             optimizer.step()
-            
             train_losses.append(loss.item())
-        
         # 学习率衰减
         if schedulers:
             for sch in schedulers:
                 sch.step()
-        
         # 验证
         model.eval()
         val_losses = []
-        
+        all_preds = []
+        all_clean = []
         with torch.no_grad():
             for noisy, clean, norm in val_loader:
                 noisy = noisy.float().unsqueeze(1).to(DEVICE)
                 clean = clean.float().unsqueeze(1).to(DEVICE)
                 norm = norm.float().to(DEVICE).view(-1, 1, 1)
-                
                 noisy_scaled = noisy * norm
                 clean_scaled = clean * norm
-                
                 eeg_clean, _ = model(noisy_scaled)
                 loss = F.mse_loss(eeg_clean, clean_scaled)
                 val_losses.append(loss.item())
-        
+                all_preds.append(eeg_clean.squeeze(1).cpu().numpy())
+                all_clean.append(clean.squeeze(1).cpu().numpy())
         val_loss = np.mean(val_losses)
-        
+        current_rrmse = float('inf')
+        if len(all_clean) > 0:
+            all_preds_np = np.concatenate(all_preds, axis=0)
+            all_clean_np = np.concatenate(all_clean, axis=0)
+            metrics = compute_all_metrics(all_preds_np, all_clean_np, fs=SAMPLING_RATE)
+            current_rrmse = metrics.get('RRMSE', float('inf'))
+        if current_rrmse < best_val_rrmse:
+            best_val_rrmse = current_rrmse
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-    
-    return best_val_loss
+        # 实时日志保存
+        if best_val_rrmse < global_best_rrmse:
+            global_best_rrmse = best_val_rrmse
+            save_best_params(
+                trial_number=-1,  # 这里无法获取trial编号，objective里会再次保存
+                rrmse=best_val_rrmse,
+                loss=best_val_loss,
+                params={}
+            )
+    return best_val_loss, best_val_rrmse
 
 
 def objective(trial):
@@ -248,29 +293,41 @@ def objective(trial):
         schedulers = None
     
     # ========== 训练 ==========
-    best_val_loss = train_and_validate(
+    best_val_loss, best_val_rrmse = train_and_validate(
         model, train_loader, val_loader, optimizer, schedulers,
         grad_clip, EPOCHS
     )
     
-    print(f"\nTrial {trial.number} 完成 - Best Val Loss: {best_val_loss:.6f}")
+    print(f"\nTrial {trial.number} 完成")
+    print(f"  - Best Val RRMSE: {best_val_rrmse:.6f} (主要指标)")
+    print(f"  - Best Val Loss: {best_val_loss:.6f} (次要指标)")
     
-    return best_val_loss
+    # 保存loss到user_attrs  
+    trial.set_user_attr('best_loss', best_val_loss)
+    
+    return best_val_rrmse
 
 
 def main():
     print('='*70)
     print('DAT-Net-Unsupervised-v2 微调超参数调优')
+    print('优化目标: RRMSE (去噪性能) - 主要目标')
+    print('次要监控: Loss (训练稳定性)')
     print('='*70)
     print(f'使用设备: {DEVICE}')
     print(f'预训练模型: {PRETRAINED_PATH}')
     print(f'调优轮数: {EPOCHS} epochs')
     print('='*70)
     
-    # 创建Optuna study
+    # 创建Optuna study - 优化RRMSE
+    pruner = optuna.pruners.MedianPruner(
+        n_startup_trials=15,    # 前15个trial不剪枝
+        n_warmup_steps=40,      # 每个trial前40个epoch不剪枝
+        interval_steps=5        # 每5个epoch检查一次
+    )
     study = optuna.create_study(
         direction='minimize',
-        pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=20)
+        pruner=pruner
     )
     
     # 开始优化

@@ -12,7 +12,6 @@ import sys
 from 复现的方法.metrics_utils import compute_all_metrics, print_metrics
 
 sys.path.append(r'D:\Pycharm_Projects\EOG Remove\复现的方法')
-
 # 导入配置
 from config import *
 
@@ -47,15 +46,12 @@ def get_data():
     # 加载已经分割好的数据集（80% 训练, 10% 验证, 10% 测试）
     train_input = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
     verify_input = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
-    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
     
     train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
     verify_output = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
-    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
 
     train_dataset = EEGDataset(train_input, train_output, is_train=True)
     verify_dataset = EEGDataset(verify_input, verify_output, is_train=False)
-    test_dataset = EEGDataset(test_input, test_output, is_train=False)
 
     train_loader = Data.DataLoader(
         dataset=train_dataset,
@@ -69,11 +65,19 @@ def get_data():
         shuffle=False
     )
 
-    test_loader = Data.DataLoader(
-        dataset=test_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False
-    )
+    # 测试集仅在可用时加载（多SNR配置下不需要）
+    if TEST_CONTAMINATED_PATH is not None:
+        test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
+        test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+        test_dataset = EEGDataset(test_input, test_output, is_train=False)
+        test_loader = Data.DataLoader(
+            dataset=test_dataset,
+            batch_size=BATCH_SIZE,
+            shuffle=False
+        )
+    else:
+        test_loader = None
+    
     return train_loader, verify_loader, test_loader
 
 

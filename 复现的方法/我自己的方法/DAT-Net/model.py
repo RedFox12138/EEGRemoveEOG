@@ -291,27 +291,27 @@ class DATNet(nn.Module):
     架构:
         - 输入: (B, 1, 512)
         - Encoder: 3层下采样 (1->32->64->128)
-        - Bottleneck: TCN层 (多个膨胀卷积块)
+        - Bottleneck: TCN层 (10个膨胀卷积块)
         - Decoder: 3层上采样 (128->64->32->16)
         - 双输出头: EEG干净信号 + EOG伪影
     """
     def __init__(self, in_channels=1, base_channels=32):
         super(DATNet, self).__init__()
         
-        # ========== 编码器 ==========
+        # ========== 编码器 (3层) ==========
         self.encoder1 = DownBlock(in_channels, base_channels)  # 1 -> 32
         self.encoder2 = DownBlock(base_channels, base_channels * 2)  # 32 -> 64
         self.encoder3 = DownBlock(base_channels * 2, base_channels * 4)  # 64 -> 128
         
-        # ========== 瓶颈层 (TCN) ==========
+        # ========== 瓶颈层 (TCN，扩充到10块) ==========
         self.bottleneck = TCNBottleneck(
             channels=base_channels * 4,  # 128
-            num_blocks=3,  # 3个TCN块: dilation=1,2,4
+            num_blocks=10,  # 从原始7块扩充到10块
             kernel_size=7,
             dropout=0.2
         )
         
-        # ========== 解码器 ==========
+        # ========== 解码器 (3层) ==========
         # UpBlock(in_channels, skip_channels, out_channels)
         self.decoder1 = UpBlock(base_channels * 4, base_channels * 4, base_channels * 2)  # 128+128 -> 64
         self.decoder2 = UpBlock(base_channels * 2, base_channels * 2, base_channels)  # 64+64 -> 32
@@ -329,15 +329,15 @@ class DATNet(nn.Module):
             eeg_clean: (B, 1, 512) 干净的EEG信号
             eog_artifact: (B, 1, 512) EOG伪影
         """
-        # ========== 编码器 ==========
+        # ========== 编码器 (3层) ==========
         skip1, enc1 = self.encoder1(x)  # skip1: (B, 32, 512), enc1: (B, 32, 256)
         skip2, enc2 = self.encoder2(enc1)  # skip2: (B, 64, 256), enc2: (B, 64, 128)
         skip3, enc3 = self.encoder3(enc2)  # skip3: (B, 128, 128), enc3: (B, 128, 64)
         
-        # ========== 瓶颈层 (TCN) ==========
+        # ========== 瓶颈层 (TCN，10块) ==========
         bottleneck = self.bottleneck(enc3)  # (B, 128, 64)
         
-        # ========== 解码器 ==========
+        # ========== 解码器 (3层) ==========
         dec1 = self.decoder1(bottleneck, skip3)  # (B, 64, 128)
         dec2 = self.decoder2(dec1, skip2)  # (B, 32, 256)
         dec3 = self.decoder3(dec2, skip1)  # (B, 16, 512)

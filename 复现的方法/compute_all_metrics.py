@@ -1,16 +1,16 @@
 """
-统一指标计算脚本 - 自动扫描并对比所有方法 (格式化CSV输出版)
+统一指标计算脚本 - 自动扫描并对比所有方法 (支持多SNR测试集)
 
 该脚本会：
-1. 加载测试集的真实纯净信号（Test_Pure.mat）
-2. 自动扫描 results 文件夹下所有 .mat 文件
-3. 提取文件名第一个 "_" 之前的内容作为方法名
+1. 加载多个SNR级别的测试集纯净信号
+2. 自动扫描 results 文件夹下所有方法的预测结果
+3. 对每个SNR级别分别计算指标
 4. 计算 RRMSE, CC, RRMSE_PSD, MI 指标
-5. 保存结果到CSV：使用 "Mean ± Std" 格式，保疙3位小数
+5. 保存每个SNR的结果到单独的CSV文件
 6. 生成对比图
 
-修改内容：CSV格式调整 (Mean ± Std)
-日期: 2025-11-29
+修改内容：支持多SNR测试集
+日期: 2025-12-24
 """
 
 import os
@@ -102,14 +102,20 @@ def compute_metrics_for_method(predictions: np.ndarray, true_signals: np.ndarray
     return metrics
 
 
-def load_test_data() -> np.ndarray:
-    """加载测试集的真实纯净信号"""
-    pure_path = DATA_CONFIG['test_pure_path']
+def load_test_data_by_snr(snr_level: int) -> np.ndarray:
+    """加载指定SNR级别的测试集纯净信号"""
+    if 'test_snr_paths' in DATA_CONFIG:
+        # 多SNR测试集
+        pure_path = DATA_CONFIG['test_snr_paths'][snr_level]['pure']
+    else:
+        # 单一测试集（向后兼容）
+        pure_path = DATA_CONFIG['test_pure_path']
+    
     if not os.path.exists(pure_path):
         raise FileNotFoundError(f"找不到测试集文件: {pure_path}")
     data = sio.loadmat(pure_path)
     pure_signals = data[DATA_CONFIG['data_key']]
-    print(f"✓ 已加载基准测试集 (Test_Pure.mat): {pure_signals.shape}")
+    print(f"✓ 已加载SNR={snr_level}dB测试集: {pure_signals.shape}")
     return pure_signals
 
 

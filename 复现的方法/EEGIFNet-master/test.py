@@ -1,16 +1,18 @@
 """
-EEGIFNet测试脚本 - 输出.mat格式
+EEGIFNet测试脚本 - 支持多SNR测试集
 """
 import torch
 import numpy as np
 import scipy.io as sio
+import sys
+import os
 from torch.utils.data import DataLoader, Dataset
 from EEGIFNet_1200 import MA_INet, MA_MNet
-import os
 from time import time
 
-# 导入数据配置
-from data_config import *
+# 添加父目录以导入数据集配置
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from dataset_config import get_dataset_config
 
 
 class EEGDataset(Dataset):
@@ -35,17 +37,23 @@ class EEGDataset(Dataset):
         return noisy_normalized, clean, norm_factor
 
 
-def load_test_data():
-    """加载测试数据"""
-    raw_eeg = np.load(CONTAMINATED_NPY_PATH)
-    clean_eeg = np.load(PURE_NPY_PATH)
+def load_test_data_by_snr(snr_level):
+    """加载指定SNR级别的测试数据"""
+    config = get_dataset_config('semi_simulated')
     
-    # 测试集 (最后10%)
-    num_samples = len(raw_eeg)
-    test_start = int(num_samples * 0.9)
+    if 'test_snr_paths' in config:
+        # 多SNR测试集
+        contaminated_path = config['test_snr_paths'][snr_level]['contaminated']
+        pure_path = config['test_snr_paths'][snr_level]['pure']
+    else:
+        # 向后兼容：单一测试集
+        contaminated_path = config['test_contaminated_path']
+        pure_path = config['test_pure_path']
     
-    test_input = raw_eeg[test_start:]
-    test_output = clean_eeg[test_start:]
+    test_input = sio.loadmat(contaminated_path)[config['data_key']]
+    test_output = sio.loadmat(pure_path)[config['data_key']]
+    
+    print(f"SNR={snr_level}dB 测试集形状: {test_input.shape}")
     
     test_dataset = EEGDataset(test_input, test_output)
     test_loader = DataLoader(test_dataset, batch_size=50, shuffle=False)

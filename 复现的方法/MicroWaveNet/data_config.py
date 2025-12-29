@@ -28,8 +28,23 @@ TRAIN_CONTAMINATED_PATH = dataset_config['train_contaminated_path']
 TRAIN_PURE_PATH = dataset_config['train_pure_path']
 VAL_CONTAMINATED_PATH = dataset_config['val_contaminated_path']
 VAL_PURE_PATH = dataset_config['val_pure_path']
-TEST_CONTAMINATED_PATH = dataset_config['test_contaminated_path']
-TEST_PURE_PATH = dataset_config['test_pure_path']
+
+# 测试集路径（向后兼容多SNR和单一测试集）
+if 'test_contaminated_path' in dataset_config:
+    TEST_CONTAMINATED_PATH = dataset_config['test_contaminated_path']
+    TEST_PURE_PATH = dataset_config['test_pure_path']
+else:
+    # 多SNR测试集，训练时不需要
+    TEST_CONTAMINATED_PATH = None
+    TEST_PURE_PATH = None
+
+# 多SNR测试配置
+if 'test_snr_levels' in dataset_config:
+    TEST_SNR_LEVELS = dataset_config['test_snr_levels']
+    TEST_SNR_PATHS = dataset_config['test_snr_paths']
+else:
+    TEST_SNR_LEVELS = []
+    TEST_SNR_PATHS = {}
 
 # ========== 训练超参数 ==========
 BATCH_SIZE = 256

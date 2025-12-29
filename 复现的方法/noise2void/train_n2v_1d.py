@@ -39,10 +39,9 @@ from n2v_dataset_1d import N2V_Dataset1D, N2V_ValidationDataset1D, n2v_loss
 
 # ========== 超参数配置 ==========
 BATCH_SIZE = 64
-EPOCHS = 500
+EPOCHS = 2000
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-5
-SAMPLING_RATE = 200.0
 
 # 学习率调度
 USE_LR_SCHEDULER = True
@@ -51,7 +50,7 @@ MIN_LR = 1e-6
 
 # 训练配置
 GRAD_CLIP = 1.0
-PATIENCE = 80
+PATIENCE = 100
 
 # N2V参数
 PERC_PIX = 1.5          # 盲点百分比

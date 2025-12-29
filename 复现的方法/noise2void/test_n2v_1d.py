@@ -14,6 +14,9 @@ from time import time
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
+# 导入数据配置
+from data_config import *
+
 # 导入metrics
 try:
     parent_dir = os.path.dirname(current_dir)
@@ -26,7 +29,12 @@ except Exception:
         print(prefix, 'Metrics:', m)
 
 from n2v_model_1d import N2V_UNet1D
-from data_config import TEST_CONTAMINATED_PATH, TEST_PURE_PATH, DATA_KEY, SAMPLING_RATE, PREDICTION_SAVE_PATH
+sys.path.insert(0, os.path.dirname(current_dir))
+from dataset_config import get_dataset_config
+dataset_config = get_dataset_config()
+DATA_KEY = dataset_config['data_key']
+SAMPLING_RATE = dataset_config['sampling_rate']
+DATASET_NAME = dataset_config['name']
 
 
 class TestDataset(Dataset):
@@ -47,11 +55,16 @@ class TestDataset(Dataset):
         return noisy.astype('float32') / norm, clean.astype('float32'), norm
 
 
-def load_data():
-    """加载测试数据"""
-    # 使用配置中的路径
-    test_x = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
-    test_y = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+def load_test_data_by_snr(snr_db):
+    """
+    根据SNR加载测试数据
+    """
+    test_snr_paths = dataset_config['test_snr_paths']
+    contaminated_path = test_snr_paths[snr_db]['contaminated']
+    pure_path = test_snr_paths[snr_db]['pure']
+    
+    test_x = scipy.io.loadmat(contaminated_path)[DATA_KEY]
+    test_y = scipy.io.loadmat(pure_path)[DATA_KEY]
     return test_x, test_y
 
 
@@ -68,15 +81,6 @@ def main():
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print(f'使用设备: {device}')
     
-    # 加载数据
-    test_x, test_y = load_data()
-    print(f'\n测试集样本数: {len(test_x)}')
-    print(f'信号长度: {test_x.shape[1]}')
-    
-    # 创建数据集和加载器
-    ds = TestDataset(test_x, test_y)
-    loader = DataLoader(ds, batch_size=50, shuffle=False)
-    
     # 创建模型（参数要与训练时一致）
     model = N2V_UNet1D(
         in_channels=1,
@@ -91,7 +95,7 @@ def main():
     print(f'模型参数量: {model.count_parameters():,}')
     
     # 加载训练好的权重（使用相对路径）
-    model_path = f'checkpoints/N2V_1D_{DATASET_NAME}_best.pth'
+    model_path = MODEL_SAVE_PATH
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path, map_location=device))
         print(f'加载模型: {model_path}')
@@ -104,55 +108,77 @@ def main():
         else:
             print('⚠️ 找不到训练好的模型，使用随机初始化权重')
     
-    # 推理
-    model.eval()
-    predictions = []
-    targets = []
-    sample_count = 0
+    # 获取SNR级别
+    snr_levels = dataset_config['test_snr_levels']
+    print(f"\n多SNR测试模式，SNR级别: {snr_levels}")
     
-    print('\n开始推理...')
-    start = time()
+    results_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
+    os.makedirs(results_dir, exist_ok=True)
     
-    with torch.no_grad():
-        for noisy, clean, norm in loader:
-            sample_count += noisy.shape[0]
-            
-            # 转换为tensor（已经归一化过了）
-            noisy_t = noisy.float().unsqueeze(1).to(device)  # (batch, 1, time)
-            
-            # 模型推理
-            pred = model(noisy_t)
-            
-            # 反归一化到原始尺度
-            pred = pred.squeeze(1).cpu().numpy()  # (batch, time)
-            pred = pred * norm.numpy()[:, None]  # 恢复原始尺度
-            
-            predictions.append(pred)
-            targets.append(clean.numpy())
+    # 对每个SNR级别进行测试
+    for snr_db in snr_levels:
+        print(f"\n========== 测试 SNR = {snr_db} dB ==========")
+        
+        # 加载数据
+        test_x, test_y = load_test_data_by_snr(snr_db)
+        print(f'测试集样本数: {len(test_x)}')
+        print(f'信号长度: {test_x.shape[1]}')
+        
+        # 创建数据集和加载器
+        ds = TestDataset(test_x, test_y)
+        loader = DataLoader(ds, batch_size=50, shuffle=False)
+        
+        # 推理
+        model.eval()
+        predictions = []
+        targets = []
+        sample_count = 0
+        
+        print('开始推理...')
+        start = time()
+        
+        with torch.no_grad():
+            for noisy, clean, norm in loader:
+                sample_count += noisy.shape[0]
+                
+                # 转换为tensor（已经归一化过了）
+                noisy_t = noisy.float().unsqueeze(1).to(device)  # (batch, 1, time)
+                
+                # 模型推理
+                pred = model(noisy_t)
+                
+                # 反归一化到原始尺度
+                pred = pred.squeeze(1).cpu().numpy()  # (batch, time)
+                pred = pred * norm.numpy()[:, None]  # 恢复原始尺度
+                
+                predictions.append(pred)
+                targets.append(clean.numpy())
+        
+        total_time = time() - start
+        time_per_sample = total_time / max(1, sample_count)
+        
+        # 合并结果
+        predictions = np.concatenate(predictions, axis=0)
+        targets = np.concatenate(targets, axis=0)
+        
+        print(f'推理完成! 单样本时间: {time_per_sample*1000:.3f} ms')
+        
+        # 计算评价指标
+        print('计算评价指标...')
+        metrics = compute_all_metrics(predictions, targets, fs=SAMPLING_RATE)
+        print_metrics(metrics, prefix='测试集')
+        
+        # 保存带SNR标识的结果
+        save_path = os.path.join(results_dir, f'N2V_predictions_SNR{snr_db}dB.mat')
+        
+        scipy.io.savemat(save_path, {
+            'predictions': predictions,
+            'time_per_sample': time_per_sample,
+        })
+        
+        print(f'预测结果已保存: {save_path}')
     
-    total_time = time() - start
-    time_per_sample = total_time / max(1, sample_count)
-    
-    # 合并结果
-    predictions = np.concatenate(predictions, axis=0)
-    targets = np.concatenate(targets, axis=0)
-    
-    print(f'推理完成! 单样本时间: {time_per_sample*1000:.3f} ms')
-    
-    # 计算评价指标
-    print('\n计算评价指标...')
-    metrics = compute_all_metrics(predictions, targets, fs=SAMPLING_RATE)
-    print_metrics(metrics, prefix='测试集')
-    
-    # 保存结果
-    save_path = PREDICTION_SAVE_PATH
-    
-    scipy.io.savemat(save_path, {
-        'predictions': predictions,
-        'time_per_sample': time_per_sample,
-    })
-    
-    print(f'\n预测结果已保存: {save_path}')
+    print('\n全部SNR测试完成！')
     print('='*70)
 
 

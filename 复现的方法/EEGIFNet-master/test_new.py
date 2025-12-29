@@ -19,6 +19,35 @@ from time import time
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data_config import *
+from dataset_config import get_dataset_config
+
+
+def get_test_data_by_snr(snr_level, batch_size=256):
+    """加载指定SNR级别的测试数据"""
+    config = get_dataset_config('semi_simulated')
+    
+    if 'test_snr_paths' in config:
+        # 多SNR测试集
+        contaminated_path = config['test_snr_paths'][snr_level]['contaminated']
+        pure_path = config['test_snr_paths'][snr_level]['pure']
+    else:
+        # 向后兼容：单一测试集
+        contaminated_path = config['test_contaminated_path']
+        pure_path = config['test_pure_path']
+    
+    import scipy.io as sio
+    test_input = sio.loadmat(contaminated_path)[config['data_key']]
+    test_output = sio.loadmat(pure_path)[config['data_key']]
+    
+    print(f"SNR={snr_level}dB 测试集形状: {test_input.shape}")
+    
+    # 创建测试数据集
+    test_dataset = EEGDataset(test_input, test_output, is_train=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    
+    input_length = test_input.shape[1]
+    
+    return test_loader, input_length
 
 
 def test_model(I_model, M_model, device, test_loader):
@@ -225,7 +254,7 @@ def visualize_results(I_model, M_model, device, test_loader, save_dir, num_sampl
 
 
 def main():
-    parser = argparse.ArgumentParser(description='EEGIFNet Testing with ASNet Dataset')
+    parser = argparse.ArgumentParser(description='EEGIFNet Testing - 支持多SNR测试集')
     parser.add_argument('--data_path', type=str, 
                         default=DATA_DIR,  # 从data_config导入
                         help='数据集路径')
@@ -241,22 +270,16 @@ def main():
     parser.add_argument('--num_vis', type=int, default=10, help='可视化样本数量')
     args = parser.parse_args()
 
+    print("="*80)
+    print("EEGIFNet 测试脚本 - 多SNR测试集")
+    print("="*80)
+
     # 创建结果目录
     os.makedirs(args.result_dir, exist_ok=True)
 
     # 设置设备
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     print(f"使用设备: {device}")
-
-    # 加载数据
-    print("加载数据集...")
-    _, _, test_loader, input_length = get_data(args.data_path, args.batch_size)
-    print(f"数据时间点: {input_length}")
-
-    # 初始化模型 (适配input_length)
-    print("初始化模型...")
-    I_model = MA_INet(input_length=input_length).to(device)
-    M_model = MA_MNet().to(device)
 
     # 加载模型权重
     inet_path = os.path.join(args.checkpoint_dir, args.inet_model)
@@ -268,75 +291,91 @@ def main():
         print(f"  MNet: {mnet_path}")
         return
 
-    print(f"加载模型权重...")
-    print(f"  INet: {inet_path}")
-    print(f"  MNet: {mnet_path}")
-    
-    I_model.load_state_dict(torch.load(inet_path, map_location=device))
-    M_model.load_state_dict(torch.load(mnet_path, map_location=device))
-
-    # 测试模型
-    print("\n开始测试...")
-    start_time = time()
-    predictions, acc_list, rrmse_list, snr_list, acc_e_list, acc_n_list = test_model(
-        I_model, M_model, device, test_loader
-    )
-    test_time = time() - start_time
-    time_per_sample = test_time / len(predictions)
-    
-    # 保存预测结果为.mat格式
-    import scipy.io
+    # 获取配置
+    config = get_dataset_config('semi_simulated')
     pred_output_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
     os.makedirs(pred_output_dir, exist_ok=True)
-    
-    pred_save_path = os.path.join(pred_output_dir, 'EEGIFNet_predictions.mat')
-    scipy.io.savemat(pred_save_path, {
-        'predictions': predictions,
-        'time_per_sample': time_per_sample
-    })
-    
-    print(f"\n预测结果已保存为.mat格式: {pred_save_path}")
-    print(f"预测结果形状: {predictions.shape}")
-    print(f"单样本推理时间: {time_per_sample*1000:.3f}ms")
 
+    # 获取所有SNR级别
+    if 'test_snr_levels' in config:
+        snr_levels = config['test_snr_levels']
+        print(f"\n检测到多SNR测试集，SNR级别: {snr_levels}")
+    else:
+        snr_levels = [None]  # 单一测试集
+        print("\n使用单一测试集")
 
-    # 保存结果到CSV
-    print(f"\n保存结果到 {args.result_dir}")
-    
-    results_df = pd.DataFrame({
-        'ACC': acc_list,
-        'RRMSE': rrmse_list,
-        'SNR_dB': snr_list,
-        'ACC_e': acc_e_list,
-        'ACC_n': acc_n_list
-    })
-    
-    results_df.to_csv(os.path.join(args.result_dir, 'EEGIFNet_test_results.csv'), index=False)
-    
-    # 保存统计信息
-    stats_df = pd.DataFrame({
-        'Metric': ['ACC', 'RRMSE', 'SNR_dB'],
-        'Mean': [np.mean(acc_list), np.mean(rrmse_list), np.mean(snr_list)],
-        'Std': [np.std(acc_list), np.std(rrmse_list), np.std(snr_list)],
-        'Min': [np.min(acc_list), np.min(rrmse_list), np.min(snr_list)],
-        'Max': [np.max(acc_list), np.max(rrmse_list), np.max(snr_list)]
-    })
-    
-    stats_df.to_csv(os.path.join(args.result_dir, 'EEGIFNet_test_statistics.csv'), index=False)
-    print(f"  详细结果: EEGIFNet_test_results.csv")
-    print(f"  统计信息: EEGIFNet_test_statistics.csv")
+    # 对每个SNR级别进行测试
+    for snr in snr_levels:
+        if snr is not None:
+            print(f"\n{'='*80}")
+            print(f"测试 SNR = {snr} dB")
+            print(f"{'='*80}")
 
-    # 打印统计信息
-    print("\n统计信息:")
-    print(stats_df.to_string(index=False))
+        # 加载该SNR级别的数据
+        print("\n加载测试数据...")
+        test_loader, input_length = get_test_data_by_snr(snr, args.batch_size)
+        print(f"数据时间点: {input_length}")
 
-    # 可视化
-    if args.visualize:
-        print(f"\n生成可视化结果 (前{args.num_vis}个样本)...")
-        vis_dir = os.path.join(args.result_dir, 'visualizations')
-        visualize_results(I_model, M_model, device, test_loader, vis_dir, args.num_vis)
+        # 初始化模型 (适配input_length)
+        print("初始化模型...")
+        I_model = MA_INet(input_length=input_length).to(device)
+        M_model = MA_MNet().to(device)
 
-    print("\n✓ 完成！请运行统一指标计算脚本来评估所有方法。")
+        print(f"加载模型权重...")
+        print(f"  INet: {inet_path}")
+        print(f"  MNet: {mnet_path}")
+        
+        I_model.load_state_dict(torch.load(inet_path, map_location=device))
+        M_model.load_state_dict(torch.load(mnet_path, map_location=device))
+
+        # 测试模型
+        print("\n开始测试...")
+        start_time = time()
+        predictions, acc_list, rrmse_list, snr_list, acc_e_list, acc_n_list = test_model(
+            I_model, M_model, device, test_loader
+        )
+        test_time = time() - start_time
+        time_per_sample = test_time / len(predictions)
+        
+        # 保存预测结果为.mat格式
+        import scipy.io
+        if snr is not None:
+            pred_save_path = os.path.join(pred_output_dir, f'EEGIFNet_predictions_SNR{snr}dB.mat')
+        else:
+            pred_save_path = os.path.join(pred_output_dir, 'EEGIFNet_predictions.mat')
+        
+        scipy.io.savemat(pred_save_path, {
+            'predictions': predictions,
+            'time_per_sample': time_per_sample
+        })
+        
+        print(f"\n✓ 结果已保存到: {pred_save_path}")
+
+        # 保存结果到CSV (如果需要)
+        if snr is not None:
+            csv_suffix = f'_SNR{snr}dB'
+        else:
+            csv_suffix = ''
+        
+        results_df = pd.DataFrame({
+            'ACC': acc_list,
+            'RRMSE': rrmse_list,
+            'SNR_dB': snr_list,
+            'ACC_e': acc_e_list,
+            'ACC_n': acc_n_list
+        })
+        
+        results_df.to_csv(os.path.join(args.result_dir, f'EEGIFNet_test_results{csv_suffix}.csv'), index=False)
+        
+        # 可视化 (仅对第一个SNR级别)
+        if args.visualize and (snr is None or snr == snr_levels[0]):
+            print(f"\n生成可视化结果 (前{args.num_vis}个样本)...")
+            vis_dir = os.path.join(args.result_dir, 'visualizations')
+            visualize_results(I_model, M_model, device, test_loader, vis_dir, args.num_vis)
+
+    print(f"\n{'='*80}")
+    print("所有SNR级别测试完成!")
+    print(f"{'='*80}")
 
 
 if __name__ == '__main__':

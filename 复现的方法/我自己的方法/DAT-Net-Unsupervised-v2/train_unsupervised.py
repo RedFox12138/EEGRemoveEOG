@@ -208,12 +208,14 @@ def main():
         print(f'[创建目录] {checkpoint_dir}')
     
     # 定义模型保存路径（使用相对路径）
-    model_save_path = os.path.join(checkpoint_dir, f'datnet_unsupervised_v2_{DATASET_NAME}_best.pth')
+    model_save_path_rrmse = os.path.join(checkpoint_dir, f'datnet_unsupervised_v2_{DATASET_NAME}_best_rrmse.pth')
+    model_save_path_loss = os.path.join(checkpoint_dir, f'datnet_unsupervised_v2_{DATASET_NAME}_best_loss.pth')
     final_model_path = os.path.join(checkpoint_dir, f'datnet_unsupervised_v2_{DATASET_NAME}_final.pth')
     
     print(f'检查点目录: {checkpoint_dir}')
     print(f'检查点目录存在: {os.path.exists(checkpoint_dir)}')
-    print(f'最佳模型路径: {model_save_path}')
+    print(f'RRMSE最佳模型: {model_save_path_rrmse}')
+    print(f'Loss最佳模型: {model_save_path_loss}')
     print(f'最终模型路径: {final_model_path}')
 
     train_x, val_x, val_y = get_data()
@@ -232,22 +234,76 @@ def main():
     if USE_LR_SCHEDULER:
         def warmup_lambda(epoch):
             if epoch < WARMUP_EPOCHS:
+                # Warmup阶段：线性上升
                 return (epoch + 1) / WARMUP_EPOCHS
             else:
+                # 线性下降策略：更激进的衰减
                 progress = (epoch - WARMUP_EPOCHS) / max(1, (EPOCHS - WARMUP_EPOCHS))
-                # 余弦退火，但保证不低于 MIN_LR
-                cosine_factor = 0.5 * (1.0 + np.cos(np.pi * progress))
+                # 线性从1.0下降到min_factor
                 min_factor = MIN_LR / LEARNING_RATE
-                return max(min_factor, cosine_factor)
+                linear_factor = 1.0 - progress * (1.0 - min_factor)
+                return max(min_factor, linear_factor)
         scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lambda)
     else:
         scheduler = None
 
+    # ========== 尝试加载上次的最佳模型（断点续训） ==========
     best_val_loss = float('inf')
+    best_val_rrmse = float('inf')
+    start_epoch = 1
     patience_counter = 0
+    
+    # 根据配置选择要加载的模型
+    resume_path = None
+    if RESUME_FROM == 'rrmse' and os.path.exists(model_save_path_rrmse):
+        resume_path = model_save_path_rrmse
+        resume_type = 'RRMSE最佳模型'
+    elif RESUME_FROM == 'loss' and os.path.exists(model_save_path_loss):
+        resume_path = model_save_path_loss
+        resume_type = 'Loss最佳模型'
+    elif RESUME_FROM == 'auto':
+        # 自动选择：优先RRMSE，其次Loss
+        if os.path.exists(model_save_path_rrmse):
+            resume_path = model_save_path_rrmse
+            resume_type = 'RRMSE最佳模型（自动选择）'
+        elif os.path.exists(model_save_path_loss):
+            resume_path = model_save_path_loss
+            resume_type = 'Loss最佳模型（自动选择）'
+    
+    if resume_path is not None:
+        print(f'\n[检测到已有模型] {resume_type}')
+        print(f'路径: {resume_path}')
+        try:
+            checkpoint = torch.load(resume_path, map_location=device)
+            
+            # 兼容旧的保存格式（只有state_dict）和新格式（包含训练状态）
+            if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['model_state_dict'])
+                best_val_loss = checkpoint.get('best_val_loss', float('inf'))
+                best_val_rrmse = checkpoint.get('best_val_rrmse', float('inf'))
+                start_epoch = checkpoint.get('epoch', 0) + 1
+                print(f'[恢复训练状态]')
+                print(f'  - 上次训练到: Epoch {start_epoch-1}')
+                print(f'  - Best Loss: {best_val_loss:.6f}')
+                print(f'  - Best RRMSE: {best_val_rrmse:.6f}')
+                if 'save_reason' in checkpoint:
+                    print(f'  - 保存原因: {checkpoint["save_reason"]}')
+            else:
+                # 旧格式，只加载模型权重
+                model.load_state_dict(checkpoint)
+                print('[加载模型权重] 从头开始记录训练状态')
+            
+            print(f'✓ 成功加载模型，将从Epoch {start_epoch}继续训练\n')
+        except Exception as e:
+            print(f'✗ 加载模型失败: {e}')
+            print('将从头开始训练\n')
+    else:
+        print(f'\n[未找到已有模型] 将从头开始训练')
+        print(f'RESUME_FROM设置: {RESUME_FROM}\n')
+    
     start_time = time()
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(start_epoch, EPOCHS + 1):
         print(f'\nEpoch [{epoch}/{EPOCHS}]')
         print('='*70)
         train_loss = train_epoch(model, device, train_loader, optimizer)
@@ -266,26 +322,67 @@ def main():
         if val_metrics is not None:
             print_metrics(val_metrics, prefix='验证集')
 
-        # 使用验证损失作为保存标准（无监督训练的正确做法）
+        # ========== 双重保存策略：同时保存RRMSE最佳和Loss最佳模型 ==========
         improved = False
+        
+        # 1. 基于RRMSE保存（如果有真实标签）
+        if val_metrics is not None and 'RRMSE' in val_metrics:
+            current_rrmse = val_metrics['RRMSE']
+            if current_rrmse < best_val_rrmse:
+                best_val_rrmse = current_rrmse
+                improved = True
+                print(f'\n[*] RRMSE降低至 {best_val_rrmse:.6f}')
+                
+                # 保存RRMSE最佳模型
+                save_dir = os.path.dirname(model_save_path_rrmse) if os.path.dirname(model_save_path_rrmse) else '.'
+                if save_dir != '.' and not os.path.exists(save_dir):
+                    os.makedirs(save_dir, exist_ok=True)
+                
+                checkpoint_rrmse = {
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'best_val_loss': best_val_loss,
+                    'best_val_rrmse': best_val_rrmse,
+                    'val_loss': val_loss,
+                    'val_metrics': val_metrics,
+                    'save_reason': f'RRMSE最佳: {best_val_rrmse:.6f}'
+                }
+                torch.save(checkpoint_rrmse, model_save_path_rrmse)
+                print(f'[保存RRMSE最佳模型] {model_save_path_rrmse}')
+        
+        # 2. 基于Loss保存（始终跟踪）
         if val_loss['total'] < best_val_loss:
             best_val_loss = val_loss['total']
             improved = True
-            print(f'\n[*] 验证损失降低: {best_val_loss:.6f}')
-            # 每次保存前都确保目录存在（使用相对路径）
-            save_dir = os.path.dirname(model_save_path) if os.path.dirname(model_save_path) else '.'
+            print(f'\n[*] 验证损失降低至 {best_val_loss:.6f}')
+            
+            # 保存Loss最佳模型
+            save_dir = os.path.dirname(model_save_path_loss) if os.path.dirname(model_save_path_loss) else '.'
             if save_dir != '.' and not os.path.exists(save_dir):
                 os.makedirs(save_dir, exist_ok=True)
-                print(f'[创建目录] {save_dir}')
-            print(f'保存最佳模型到: {model_save_path}')
-            torch.save(model.state_dict(), model_save_path)
+            
+            checkpoint_loss = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'best_val_loss': best_val_loss,
+                'best_val_rrmse': best_val_rrmse,
+                'val_loss': val_loss,
+                'val_metrics': val_metrics if val_metrics is not None else {},
+                'save_reason': f'Loss最佳: {best_val_loss:.6f}'
+            }
+            torch.save(checkpoint_loss, model_save_path_loss)
+            print(f'[保存Loss最佳模型] {model_save_path_loss}')
+        
+        # 更新patience计数器
+        if improved:
             patience_counter = 0
         else:
             patience_counter += 1
 
         if scheduler is not None:
             scheduler.step()
-            print(f'\nLearning Rate: {optimizer.param_groups[0]["lr"]:.6f}')
+            current_lr = optimizer.param_groups[0]["lr"]
+            print(f'\nLearning Rate: {current_lr:.8f} (初始:{LEARNING_RATE:.6f} → 最小:{MIN_LR:.6f})')
 
         elapsed = time() - start_time
         print(f'Elapsed Time: {int(elapsed//60)}min {int(elapsed%60)}s')

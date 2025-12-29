@@ -54,9 +54,15 @@ class TestDataset(Dataset):
         return noisy.astype('float32') / norm, clean.astype('float32'), norm
 
 
-def load_data():
-    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
-    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+def load_test_data_by_snr(snr_db):
+    """
+    根据SNR加载测试数据
+    """
+    contaminated_path = TEST_SNR_PATHS[snr_db]['contaminated']
+    pure_path = TEST_SNR_PATHS[snr_db]['pure']
+    
+    test_input = scipy.io.loadmat(contaminated_path)[DATA_KEY]
+    test_output = scipy.io.loadmat(pure_path)[DATA_KEY]
     # 计算真实眼电伪影（污染信号 - 纯净信号）
     test_eog = test_input - test_output
     return test_input, test_output, test_eog
@@ -168,93 +174,130 @@ def main():
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print('\n使用设备:', device)
 
-    test_x, test_y, test_eog = load_data()
-    print('测试集样本数:', len(test_x))
-
-    ds = TestDataset(test_x, test_y)
-    loader = DataLoader(ds, batch_size=50, shuffle=False)
-
+    # 加载模型
     model = DATNet(in_channels=1, base_channels=32).to(device)
     print(f'模型参数量: {model.count_parameters():,}')
 
-    if os.path.exists(MODEL_SAVE_PATH):
-        model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=device))
-        print('加载模型:', MODEL_SAVE_PATH)
+    if os.path.exists(MODEL_SAVE_PATH_RRMSE):
+        checkpoint = torch.load(MODEL_SAVE_PATH_RRMSE, map_location=device)
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            model.load_state_dict(checkpoint)
+        print('加载模型:', MODEL_SAVE_PATH_RRMSE)
     else:
-        print(f'⚠️ 找不到训练好的模型 {MODEL_SAVE_PATH}，尝试 final 版本...')
+        print(f'⚠️ 找不到训练好的模型 {MODEL_SAVE_PATH_RRMSE}，尝试 final 版本...')
         if os.path.exists(FINAL_MODEL_PATH):
             model.load_state_dict(torch.load(FINAL_MODEL_PATH, map_location=device))
             print('加载模型:', FINAL_MODEL_PATH)
         else:
             print('⚠️ 找不到训练好的模型，使用随机初始化权重')
 
-    model.eval()
-    eeg_preds = []
-    eog_preds = []
-    targets = []
-    sample_count = 0
-    start = time()
-    with torch.no_grad():
-        for noisy, clean, norm in loader:
-            sample_count += noisy.shape[0]
-            
-            # ✅ 训练时的流程：输入归一化数据，在循环中乘回 norm，然后传入模型
-            # 测试时应该保持完全一致
-            noisy_t = noisy.float().unsqueeze(1).to(device)  # (B, 1, L) - 归一化的
-            norm_t = norm.float().view(-1,1,1).to(device)  # (B, 1, 1)
-            noisy_scaled = noisy_t * norm_t  # 恢复原始尺度（与训练时一致）
+    # 获取SNR级别
+    if TEST_SNR_LEVELS:
+        print(f"\n多SNR测试模式，SNR级别: {TEST_SNR_LEVELS}")
+        snr_levels = TEST_SNR_LEVELS
+    else:
+        print("\n单一测试集模式")
+        snr_levels = [None]
+    
+    # 对每个SNR级别进行测试
+    for snr_db in snr_levels:
+        if snr_db is not None:
+            print(f"\n{'='*70}")
+            print(f"测试 SNR = {snr_db} dB")
+            print('='*70)
+            test_x, test_y, test_eog = load_test_data_by_snr(snr_db)
+            save_suffix = f'_SNR{snr_db}dB'
+        else:
+            test_x, test_y, test_eog = load_test_data_by_snr(snr_db) if TEST_SNR_LEVELS else (
+                scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY],
+                scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY],
+                scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY] - scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+            )
+            save_suffix = ''
+        
+        print('测试集样本数:', len(test_x))
 
-            # 前向传播 - 使用原始尺度的数据（与训练时一致）
-            eeg_clean, eog_artifact = model(noisy_scaled)
-            
-            # 注意：v2 版本训练时使用 loss 函数返回 (c_A, a_A, c_B, a_B)
-            # 但测试时直接调用 model 只返回 (c, a)，即单分支输出
-            # 这里使用的就是主分支的输出（与训练时的 c_B, a_B 逻辑一致）
+        ds = TestDataset(test_x, test_y)
+        loader = DataLoader(ds, batch_size=50, shuffle=False)
 
-            eeg_preds.append(eeg_clean.squeeze(1).cpu().numpy())
-            eog_preds.append(eog_artifact.squeeze(1).cpu().numpy())
-            targets.append(clean.numpy())
+        model.eval()
+        eeg_preds = []
+        eog_preds = []
+        targets = []
+        sample_count = 0
+        start = time()
+        with torch.no_grad():
+            for noisy, clean, norm in loader:
+                sample_count += noisy.shape[0]
+                
+                # ✅ 训练时的流程：输入归一化数据，在循环中乘回 norm，然后传入模型
+                # 测试时应该保持完全一致
+                noisy_t = noisy.float().unsqueeze(1).to(device)  # (B, 1, L) - 归一化的
+                norm_t = norm.float().view(-1,1,1).to(device)  # (B, 1, 1)
+                noisy_scaled = noisy_t * norm_t  # 恢复原始尺度（与训练时一致）
 
-    total_time = time() - start
-    time_per_sample = total_time / max(1, sample_count)
+                # 前向传播 - 使用原始尺度的数据（与训练时一致）
+                eeg_clean, eog_artifact = model(noisy_scaled)
+                
+                # 注意：v2 版本训练时使用 loss 函数返回 (c_A, a_A, c_B, a_B)
+                # 但测试时直接调用 model 只返回 (c, a)，即单分支输出
+                # 这里使用的就是主分支的输出（与训练时的 c_B, a_B 逻辑一致）
 
-    eeg_preds = np.concatenate(eeg_preds, axis=0)
-    eog_preds = np.concatenate(eog_preds, axis=0)
-    targets = np.concatenate(targets, axis=0)
+                eeg_preds.append(eeg_clean.squeeze(1).cpu().numpy())
+                eog_preds.append(eog_artifact.squeeze(1).cpu().numpy())
+                targets.append(clean.numpy())
 
-    print('推理完成! 单样本时间: %.3f ms' % (time_per_sample*1000))
+        total_time = time() - start
+        time_per_sample = total_time / max(1, sample_count)
 
-    print('\n计算评价指标...')
-    metrics = compute_all_metrics(eeg_preds, targets, fs=SAMPLING_RATE)
-    print_metrics(metrics, prefix='测试集')
+        eeg_preds = np.concatenate(eeg_preds, axis=0)
+        eog_preds = np.concatenate(eog_preds, axis=0)
+        targets = np.concatenate(targets, axis=0)
 
-    scipy.io.savemat(PREDICTION_SAVE_PATH, {
-        'predictions': eeg_preds,
-        'eog_artifacts': eog_preds,
-        'time_per_sample': time_per_sample,
-    })
-    print('预测结果已保存:', PREDICTION_SAVE_PATH)
+        print('推理完成! 单样本时间: %.3f ms' % (time_per_sample*1000))
 
-    print('\n验证解耦一致性...')
-    reconstructed = eeg_preds + eog_preds
-    original = test_x
-    consistency_error = np.mean((reconstructed - original) ** 2)
-    print('重建一致性MSE:', consistency_error)
+        print('\n计算评价指标...')
+        metrics = compute_all_metrics(eeg_preds, targets, fs=SAMPLING_RATE)
+        print_metrics(metrics, prefix='测试集')
 
-    # 添加可视化结果
+        # 保存预测结果（带SNR标识）
+        pred_save_path = PREDICTION_SAVE_PATH.replace('.mat', f'{save_suffix}.mat')
+        scipy.io.savemat(pred_save_path, {
+            'predictions': eeg_preds,
+            'eog_artifacts': eog_preds,
+            'time_per_sample': time_per_sample,
+        })
+        print('预测结果已保存:', pred_save_path)
+
+        print('\n验证解耦一致性...')
+        reconstructed = eeg_preds + eog_preds
+        original = test_x
+        consistency_error = np.mean((reconstructed - original) ** 2)
+        print('重建一致性MSE:', consistency_error)
+
+        # 添加可视化结果
+        if snr_db is not None:
+            print(f'\n生成 SNR={snr_db}dB 可视化结果...')
+            vis_dir = os.path.join(current_dir, f'results_visualization_SNR{snr_db}dB')
+        else:
+            print('\n生成可视化结果...')
+            vis_dir = os.path.join(current_dir, 'results_visualization')
+        
+        visualize_results(
+            noisy=test_x,
+            clean_pred=eeg_preds,
+            clean_target=targets,
+            eog_pred=eog_preds,
+            eog_target=test_eog,
+            num_samples=5,
+            save_dir=vis_dir
+        )
+    
     print('\n' + '='*70)
-    print('生成可视化结果...')
+    print('全部SNR测试完成！')
     print('='*70)
-    vis_dir = os.path.join(current_dir, 'results_visualization')
-    visualize_results(
-        noisy=test_x,
-        clean_pred=eeg_preds,
-        clean_target=targets,
-        eog_pred=eog_preds,
-        eog_target=test_eog,
-        num_samples=5,
-        save_dir=vis_dir
-    )
 
     print('\n' + '='*70)
 

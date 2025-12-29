@@ -7,13 +7,13 @@ import torch
 import torch.utils.data as Data
 import numpy as np
 
-# 添加父目录以导入数据配置
-parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, parent_dir)
-
-from data_config import DATA_DIR, TEST_CONTAMINATED_PATH, TEST_PURE_PATH, DATA_KEY
+# 添加路径以导入相关模块
+sys.path.append(r'D:\Pycharm_Projects\EOG Remove\复现的方法')
 from cbamdropout import EEGNetMorletWindowCBAMDropout
 
+# 导入数据集配置
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from data_config import *
 
 BATCH_SIZE = 50
 
@@ -42,9 +42,16 @@ class EEGDatasetASNetStyle(Data.Dataset):
         return noisy_normalized, clean, np.array([norm_factor], dtype=np.float32)
 
 
-def load_test_data(data_dir):
-    test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
-    test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+def load_test_data_by_snr(snr_db):
+    """
+    根据SNR加载测试数据
+    """
+    test_snr_paths = dataset_config['test_snr_paths']
+    contaminated_path = test_snr_paths[snr_db]['contaminated']
+    pure_path = test_snr_paths[snr_db]['pure']
+    
+    test_input = scipy.io.loadmat(contaminated_path)[DATA_KEY]
+    test_output = scipy.io.loadmat(pure_path)[DATA_KEY]
 
     test_set = EEGDatasetASNetStyle(test_input, test_output, is_train=False)
     test_loader = Data.DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
@@ -85,9 +92,7 @@ def test_model(model, device, test_loader):
 
 def main():
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
-    test_loader, test_targets = load_test_data(DATA_DIR)
-
+    
     model = EEGNetMorletWindowCBAMDropout(device=device)
     model.to(device)
 
@@ -97,15 +102,28 @@ def main():
         return
 
     model.load_state_dict(torch.load(model_path, map_location=device))
-
-    preds, targets, tps = test_model(model, device, test_loader)
-
+    
+    # 获取SNR级别
+    snr_levels = dataset_config['test_snr_levels']
+    print(f"多SNR测试模式，SNR级别: {snr_levels}")
+    
     results_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
     os.makedirs(results_dir, exist_ok=True)
-    save_path = os.path.join(results_dir, 'MicroWaveNet_predictions.mat')
-    scipy.io.savemat(save_path, {'predictions': preds, 'targets': targets, 'time_per_sample': tps})
-
-    print(f'预测保存到: {save_path}, 预测形状: {preds.shape}, 单样本时间: {tps*1000:.3f}ms')
+    
+    # 对每个SNR级别进行测试
+    for snr_db in snr_levels:
+        print(f"\n========== 测试 SNR = {snr_db} dB ==========")
+        
+        test_loader, test_targets = load_test_data_by_snr(snr_db)
+        preds, targets, tps = test_model(model, device, test_loader)
+        
+        # 保存带SNR标识的结果
+        save_path = os.path.join(results_dir, f'MicroWaveNet_predictions_SNR{snr_db}dB.mat')
+        scipy.io.savemat(save_path, {'predictions': preds, 'targets': targets, 'time_per_sample': tps})
+        
+        print(f'预测保存到: {save_path}, 预测形状: {preds.shape}, 单样本时间: {tps*1000:.3f}ms')
+    
+    print("\n全部SNR测试完成！")
 
 
 if __name__ == '__main__':

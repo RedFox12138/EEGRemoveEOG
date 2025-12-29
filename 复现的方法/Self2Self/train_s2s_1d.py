@@ -36,10 +36,9 @@ from s2s_model_1d import Self2Self_UNet1D, self2self_loss
 
 # ========== 超参数配置 ==========
 BATCH_SIZE = 32
-EPOCHS = 500
+EPOCHS = 2000
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 0.0
-SAMPLING_RATE = 200.0
 
 # 学习率调度
 USE_LR_SCHEDULER = True
@@ -48,7 +47,7 @@ MIN_LR = 1e-6
 
 # 训练配置
 GRAD_CLIP = 1.0
-PATIENCE = 800
+PATIENCE = 100
 
 # Self2Self参数
 DROPOUT_RATE = 0.3      # Dropout概率（掩蔽比例）
