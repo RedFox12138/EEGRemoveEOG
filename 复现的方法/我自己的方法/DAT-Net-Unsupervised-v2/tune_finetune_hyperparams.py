@@ -39,23 +39,25 @@ except Exception:
 
 
 # ========== 固定配置 ==========
-BATCH_SIZE = 256
+BATCH_SIZE = 200
 SAMPLING_RATE = 200.0
 DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-EPOCHS = 1000  # 调优时减少epoch数以加快速度
-PRETRAINED_PATH = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best_old.pth'
+EPOCHS = 200  # 调优时减少epoch数以加快速度
+PRETRAINED_PATH = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best_rrmse.pth'
 
 # 全局变量：记录当前最佳参数
 BEST_PARAMS_LOG_FILE = 'best_params_finetune_live.json'
-global_best_rrmse = float('inf')
+# 全局记录用于实时保存的最优指标（默认以 CC 为目标，越大越好）
+global_best_cc = float('-inf')
 
-def save_best_params(trial_number, rrmse, loss, params):
+def save_best_params(trial_number, metric_name, metric_value, loss, params):
     """
     实时保存当前最佳参数到日志文件
     """
     best_params = {
         'trial_number': trial_number,
-        'best_rrmse': float(rrmse),
+        'best_metric_name': metric_name,
+        'best_metric_value': float(metric_value),
         'corresponding_loss': float(loss),
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'parameters': {k: float(v) if isinstance(v, (int, float, np.number)) else v for k, v in params.items()}
@@ -63,9 +65,9 @@ def save_best_params(trial_number, rrmse, loss, params):
     
     with open(BEST_PARAMS_LOG_FILE, 'w', encoding='utf-8') as f:
         json.dump(best_params, f, indent=2, ensure_ascii=False)
-    
+
     print(f"\n🎯 发现更佳参数！已更新日志: {BEST_PARAMS_LOG_FILE}")
-    print(f"   Trial #{trial_number}: RRMSE={rrmse:.6f}, Loss={loss:.6f}")
+    print(f"   Trial #{trial_number}: {metric_name}={metric_value:.6f}, Loss={loss:.6f}")
 
 
 class SupervisedDataset(Dataset):
@@ -157,11 +159,12 @@ def get_layerwise_params(model, lr_encoder, lr_bottleneck, lr_decoder, lr_output
 
 
 def train_and_validate(model, train_loader, val_loader, optimizer, schedulers, 
-                       grad_clip, epochs):
+                       grad_clip, epochs, params=None, trial_number=-1):
     """训练和验证"""
     best_val_loss = float('inf')
     best_val_rrmse = float('inf')
-    global global_best_rrmse
+    best_val_cc = float('-inf')
+    global global_best_cc
     for epoch in range(1, epochs + 1):
         # 训练
         model.train()
@@ -200,28 +203,32 @@ def train_and_validate(model, train_loader, val_loader, optimizer, schedulers,
                 loss = F.mse_loss(eeg_clean, clean_scaled)
                 val_losses.append(loss.item())
                 all_preds.append(eeg_clean.squeeze(1).cpu().numpy())
-                all_clean.append(clean.squeeze(1).cpu().numpy())
+                # 注意：eeg_clean 已经被缩放回原始幅值（乘以 norm），因此这里也应该使用 clean_scaled
+                all_clean.append(clean_scaled.squeeze(1).cpu().numpy())
         val_loss = np.mean(val_losses)
         current_rrmse = float('inf')
+        current_cc = float('-inf')
         if len(all_clean) > 0:
             all_preds_np = np.concatenate(all_preds, axis=0)
             all_clean_np = np.concatenate(all_clean, axis=0)
             metrics = compute_all_metrics(all_preds_np, all_clean_np, fs=SAMPLING_RATE)
             current_rrmse = metrics.get('RRMSE', float('inf'))
+            current_cc = metrics.get('CC', float('-inf'))
         if current_rrmse < best_val_rrmse:
             best_val_rrmse = current_rrmse
+        if current_cc > best_val_cc:
+            best_val_cc = current_cc
         if val_loss < best_val_loss:
             best_val_loss = val_loss
         # 实时日志保存
-        if best_val_rrmse < global_best_rrmse:
-            global_best_rrmse = best_val_rrmse
-            save_best_params(
-                trial_number=-1,  # 这里无法获取trial编号，objective里会再次保存
-                rrmse=best_val_rrmse,
-                loss=best_val_loss,
-                params={}
-            )
-    return best_val_loss, best_val_rrmse
+        # 使用 CC 作为实时保存的目标（CC 越大越好）
+        if best_val_cc > global_best_cc:
+            global_best_cc = best_val_cc
+            try:
+                save_best_params(trial_number=trial_number, metric_name='CC', metric_value=best_val_cc, loss=best_val_loss, params=params or {})
+            except Exception:
+                pass
+    return best_val_loss, best_val_rrmse, best_val_cc
 
 
 def objective(trial):
@@ -233,9 +240,9 @@ def objective(trial):
     # ========== 超参数搜索空间 ==========
     # 分层学习率
     lr_encoder = trial.suggest_float('lr_encoder', 1e-5, 1e-3, log=True)
-    lr_bottleneck = trial.suggest_float('lr_bottleneck', 1e-4, 5e-3, log=True)
-    lr_decoder = trial.suggest_float('lr_decoder', 1e-4, 1e-2, log=True)
-    lr_output = trial.suggest_float('lr_output', 1e-4, 5e-3, log=True)
+    lr_bottleneck = trial.suggest_float('lr_bottleneck', 1e-5, 1e-3, log=True)
+    lr_decoder = trial.suggest_float('lr_decoder', 1e-5, 1e-3, log=True)
+    lr_output = trial.suggest_float('lr_output', 1e-5, 1e-3, log=True)
     
     # 优化器参数
     weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-4, log=True)
@@ -262,7 +269,39 @@ def objective(trial):
     model = DATNet(in_channels=1, base_channels=32).to(DEVICE)
     
     if os.path.exists(PRETRAINED_PATH):
-        model.load_state_dict(torch.load(PRETRAINED_PATH, map_location=DEVICE))
+        # 兼容多种 checkpoint 格式：
+        # - 直接 state_dict
+        # - 包含 'model_state_dict' 或 'state_dict' 的 dict (常见的 checkpoint 格式)
+        # 并去除可能的 'module.' 前缀（DataParallel 保存时）
+        ckpt = torch.load(PRETRAINED_PATH, map_location=DEVICE)
+        if isinstance(ckpt, dict):
+            if 'model_state_dict' in ckpt:
+                state = ckpt['model_state_dict']
+            elif 'state_dict' in ckpt:
+                state = ckpt['state_dict']
+            else:
+                state = ckpt
+        else:
+            state = ckpt
+
+        # 处理可能的 DataParallel 前缀
+        try:
+            from collections import OrderedDict
+            new_state = OrderedDict()
+            for k, v in state.items():
+                new_k = k
+                if k.startswith('module.'):
+                    new_k = k[len('module.'):]
+                new_state[new_k] = v
+        except Exception:
+            new_state = state
+
+        # 先尝试严格加载，若失败则降为非严格加载以兼容键不匹配的情况
+        try:
+            model.load_state_dict(new_state)
+        except RuntimeError as e:
+            print('⚠️ 模型权重与当前结构不完全匹配，尝试非严格加载（忽略不匹配的键）:', e)
+            model.load_state_dict(new_state, strict=False)
     else:
         print(f'⚠️ 未找到预训练模型: {PRETRAINED_PATH}')
         return float('inf')
@@ -293,10 +332,19 @@ def objective(trial):
         schedulers = None
     
     # ========== 训练 ==========
-    best_val_loss, best_val_rrmse = train_and_validate(
+    best_val_loss, best_val_rrmse, best_val_cc = train_and_validate(
         model, train_loader, val_loader, optimizer, schedulers,
-        grad_clip, EPOCHS
+        grad_clip, EPOCHS, params=trial.params, trial_number=trial.number
     )
+
+    # 如果本次 trial 得到更好的 CC（历史上以 CC 为调优目标），则保存到实时日志（包含 trial 编号和参数）
+    global global_best_cc
+    if best_val_cc > global_best_cc:
+        global_best_cc = best_val_cc
+        try:
+            save_best_params(trial.number, 'CC', best_val_cc, best_val_loss, trial.params)
+        except Exception as e:
+            print('⚠️ 保存最佳参数到 JSON 时出错:', e)
     
     print(f"\nTrial {trial.number} 完成")
     print(f"  - Best Val RRMSE: {best_val_rrmse:.6f} (主要指标)")
@@ -311,22 +359,22 @@ def objective(trial):
 def main():
     print('='*70)
     print('DAT-Net-Unsupervised-v2 微调超参数调优')
-    print('优化目标: RRMSE (去噪性能) - 主要目标')
-    print('次要监控: Loss (训练稳定性)')
+    print('优化目标: CC (相关系数) - 主要目标')
+    print('次要监控: Loss (训练稳定性) / RRMSE')
     print('='*70)
     print(f'使用设备: {DEVICE}')
     print(f'预训练模型: {PRETRAINED_PATH}')
     print(f'调优轮数: {EPOCHS} epochs')
     print('='*70)
     
-    # 创建Optuna study - 优化RRMSE
+    # 创建Optuna study - 优化 CC（越大越好）
     pruner = optuna.pruners.MedianPruner(
         n_startup_trials=15,    # 前15个trial不剪枝
         n_warmup_steps=40,      # 每个trial前40个epoch不剪枝
         interval_steps=5        # 每5个epoch检查一次
     )
     study = optuna.create_study(
-        direction='minimize',
+        direction='maximize',
         pruner=pruner
     )
     
@@ -349,7 +397,7 @@ def main():
         else:
             print(f'  {key}: {value}')
     
-    print(f'\n最佳验证损失: {study.best_value:.6f}')
+    print(f'\n最佳验证指标 (CC): {study.best_value:.6f}')
     
     # 保存结果
     results_file = 'finetune_best_hyperparams.txt'
@@ -365,7 +413,7 @@ def main():
             else:
                 f.write(f'  {key}: {value}\n')
         
-        f.write(f'\n最佳验证损失: {study.best_value:.6f}\n')
+        f.write(f'\n最佳验证指标 (CC): {study.best_value:.6f}\n')
         
         f.write('\n\n建议配置 (复制到 finetune_adaptive.py):\n')
         f.write('='*70 + '\n')

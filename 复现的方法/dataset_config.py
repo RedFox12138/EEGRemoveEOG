@@ -34,21 +34,23 @@ DATASET_CONFIGS = {
         'description': '基于真实EEG数据生成的半模拟数据集,采样率200Hz,包含5种SNR级别的测试集'
     },
     
-    # 全模拟数据集 (新数据集)
+    # 全模拟数据集 (新数据集 - 7个SNR等级)
     'fully_simulated': {
         'name': '全模拟数据集',
         'sampling_rate': 250.0,  # Hz
         'window_duration': 6,  # seconds
         'window_size': 1500,  # 250 * 6
-        'data_dir': os.path.join(PROJECT_ROOT, '生成全模拟数据', '已经生成好的数据'),
+        'data_dir': os.path.join(PROJECT_ROOT, '生成全模拟数据', '已经生成好的数据', 'Multi_SNR_Merged'),
         'train_contaminated': 'Train_Contaminated.mat',
         'train_pure': 'Train_Pure.mat',
         'val_contaminated': 'Val_Contaminated.mat',
         'val_pure': 'Val_Pure.mat',
-        'test_contaminated': 'Test_Contaminated.mat',
-        'test_pure': 'Test_Pure.mat',
-        'data_key': 'data',  # .mat文件中的key
-        'description': '完全模拟生成的数据集,包含4种类型,采样率250Hz'
+        'test_snr_levels': [0, -2, -4, -8, -12, -14, -16],  # 7个SNR级别
+        'test_contaminated_template': 'Test_Contaminated_SNR{}dB.mat',
+        'test_pure_template': 'Test_Pure_SNR{}dB.mat',
+        'data_key': 'Contaminated',  # .mat文件中的key（污染信号）
+        'pure_key': 'Pure',  # 纯净信号的key
+        'description': '完全模拟生成的数据集,采样率250Hz,7个SNR等级,格式[n_samples, 1500]'
     }
 }
 

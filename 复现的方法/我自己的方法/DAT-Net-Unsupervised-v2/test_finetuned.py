@@ -190,7 +190,7 @@ def test_model(model_path, output_suffix, device):
         # 保存结果（带SNR标识）
         out_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
         os.makedirs(out_dir, exist_ok=True)
-        save_path = os.path.join(out_dir, f'DAT-Net-Unsupervised-v2_{output_suffix}_predictions{save_suffix}.mat')
+        save_path = os.path.join(out_dir, f'DAT-Net-Unsupervised-v2-30%数据_{output_suffix}_predictions{save_suffix}.mat')
         scipy.io.savemat(save_path, {
             'predictions': all_preds,
             'eog_artifacts': all_eog_preds,
@@ -205,7 +205,7 @@ def test_model(model_path, output_suffix, device):
 
 def main():
     parser = argparse.ArgumentParser(description='DAT-Net-Unsupervised-v2 测试脚本')
-    parser.add_argument('--model', type=str, default='DAT-Net-Unsupervised-v2_finetuned_best_10%鏁版嵁.pth',
+    parser.add_argument('--model', type=str, default='DAT-Net-Unsupervised-v2_finetuned_best_30%鏁版嵁.pth',
                         help='模型权重文件路径')
     parser.add_argument('--suffix', type=str, default='finetuned_best',
                         help='输出文件后缀名')

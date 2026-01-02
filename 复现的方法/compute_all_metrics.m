@@ -34,35 +34,57 @@ function compute_all_metrics()
     if isfield(config, 'hasMultiSnrTest') && config.hasMultiSnrTest
         fprintf('\n检测到多SNR测试集配置\n');
         fprintf('SNR级别: %s\n', mat2str(config.testSnrLevels));
-        
-        % 为每个SNR级别计算指标
+
+        % 初始化收集所有SNR结果的结构
+        results_all_snr = struct();
+        snr_levels = config.testSnrLevels;
+
+        % 为每个SNR级别计算指标并收集结果（process_snr_level 返回该SNR的 results_dict）
         for snr_idx = 1:length(config.testSnrLevels)
             current_snr = config.testSnrLevels(snr_idx);
             fprintf('\n================================================================================\n');
             fprintf('%s\n', center_text(sprintf('处理 SNR = %d dB 的测试集', current_snr), 80));
             fprintf('================================================================================\n');
-            
+
             % 获取该SNR级别的测试集路径
             test_pure_path = config.testSnrPaths(snr_idx).pure;
-            
+
             % 加载测试集
             fprintf('\n正在加载测试集: %s\n', test_pure_path);
             if ~exist(test_pure_path, 'file')
                 warning('找不到测试集文件: %s, 跳过', test_pure_path);
                 continue;
             end
-            
+
             data_struct = load(test_pure_path);
             true_signals = data_struct.(config.dataKey);
             fprintf('✓ 已加载基准测试集: %s\n', mat2str(size(true_signals)));
-            
-            % 处理该SNR级别的所有方法
-            process_snr_level(config, current_snr, true_signals, results_dir);
+
+            % 处理该SNR级别的所有方法，并获取结果
+            results_snr = process_snr_level(config, current_snr, true_signals, results_dir);
+
+            % 合并到总结果中
+            methods_in_snr = fieldnames(results_snr);
+            for m_idx = 1:length(methods_in_snr)
+                method = methods_in_snr{m_idx};
+                if ~isfield(results_all_snr, method)
+                    results_all_snr.(method) = struct();
+                    results_all_snr.(method).display_name = results_snr.(method).display_name;
+                    results_all_snr.(method).snr_metrics = struct();
+                end
+                snr_key = snr_field(current_snr);
+                results_all_snr.(method).snr_metrics.(snr_key) = results_snr.(method);
+            end
         end
-        
+
         fprintf('\n================================================================================\n');
         fprintf('%s\n', center_text('全部SNR级别处理完成！', 80));
         fprintf('================================================================================\n');
+
+        % 生成跨SNR的两张汇总图：指标随SNR变化折线图 & 平均时间柱状图
+        plot_snr_comparison(results_all_snr, snr_levels, results_dir);
+        plot_avg_time(results_all_snr, results_dir);
+
         return;
     end
     
@@ -429,6 +451,133 @@ end
 
 
 %% ===================== 绘图函数 =====================
+function plot_snr_comparison(results_all_snr, snr_levels, output_dir)
+% 生成跨SNR的折线对比图 - 4个子图，每个指标一个子图，随着SNR从大到小
+    snr_sorted = sort(snr_levels, 'descend');
+    n_snr = length(snr_sorted);
+    methods = fieldnames(results_all_snr);
+    n_methods = length(methods);
+
+    % 使用不同颜色
+    colors = lines(n_methods);
+
+    % 创建图形
+    figure('Position', [100, 100, 1600, 1200], 'Color', 'w');
+
+    metrics_names = {'RRMSE', 'CC', 'RRMSE_PSD', 'MI'};
+    subplot_labels = {'(a)', '(b)', '(c)', '(d)'};
+
+    for m = 1:4
+        subplot(2, 2, m);
+        hold on;
+        metric_name = metrics_names{m};
+
+        for i = 1:n_methods
+            method = methods{i};
+            if isfield(results_all_snr.(method), 'display_name')
+                display_name = results_all_snr.(method).display_name;
+            else
+                display_name = method;
+            end
+            y_vals = nan(n_snr, 1);
+
+            for j = 1:n_snr
+                snr = snr_sorted(j);
+                snr_key = snr_field(snr);
+                if isfield(results_all_snr.(method).snr_metrics, snr_key)
+                    metrics_entry = results_all_snr.(method).snr_metrics.(snr_key);
+                    field_name = sprintf('%s_mean', metric_name);
+                    if isfield(metrics_entry, field_name)
+                        y_vals(j) = metrics_entry.(field_name);
+                    end
+                end
+            end
+
+            plot(snr_sorted, y_vals, 'o-', 'Color', colors(i,:), 'LineWidth', 2, 'MarkerSize', 8, 'DisplayName', display_name);
+        end
+
+        xlabel('SNR (dB)', 'FontSize', 14, 'FontWeight', 'bold');
+        ylabel(metric_name, 'FontSize', 14, 'FontWeight', 'bold');
+        title(subplot_labels{m}, 'FontSize', 16, 'FontWeight', 'bold');
+        legend('Location', 'best', 'FontSize', 10);
+        grid on;
+        set(gca, 'XGrid', 'off', 'YGrid', 'on', 'GridAlpha', 0.3, 'GridLineStyle', '--');
+        box on;
+        hold off;
+    end
+
+    % 添加总标题
+    sgtitle('各方法性能指标随SNR变化', 'FontSize', 20, 'FontWeight', 'bold');
+    fprintf('✓ 跨SNR性能对比图已显示\n');
+end
+
+
+function plot_avg_time(results_all_snr, output_dir)
+% 生成平均运行时间的柱状图（对所有SNR取平均）
+    methods = fieldnames(results_all_snr);
+    n_methods = length(methods);
+    avg_times = zeros(n_methods, 1);
+    display_names = cell(n_methods, 1);
+
+    for i = 1:n_methods
+        method = methods{i};
+        if isfield(results_all_snr.(method), 'display_name')
+            display_names{i} = results_all_snr.(method).display_name;
+        else
+            display_names{i} = method;
+        end
+        snr_keys = fieldnames(results_all_snr.(method).snr_metrics);
+        times = [];
+        for k = 1:length(snr_keys)
+            entry = results_all_snr.(method).snr_metrics.(snr_keys{k});
+            if isfield(entry, 'time_per_sample')
+                times(end+1) = entry.time_per_sample;
+            end
+        end
+        if isempty(times)
+            avg_times(i) = NaN;
+        else
+            avg_times(i) = mean(times) * 1000; % ms
+        end
+    end
+
+    % 创建图形（水平柱状图，按时间从小到大排序）
+    [avg_times_sorted, sort_idx] = sort(avg_times, 'ascend');
+    display_names_sorted = display_names(sort_idx);
+
+    figure('Position', [100, 100, 1200, 600], 'Color', 'w');
+    h = barh(1:n_methods, avg_times_sorted, 'FaceColor', 'flat', 'EdgeColor', 'k', 'LineWidth', 1.2);
+    gray_values = linspace(0.3, 0.8, n_methods)';
+    colors = repmat(gray_values, 1, 3);
+    h.CData = colors;
+
+    % 设置Y轴为方法名
+    set(gca, 'YTick', 1:n_methods, 'YTickLabel', display_names_sorted, 'FontSize', 13);
+    xlabel('平均运行时间 (ms)', 'FontSize', 16, 'FontWeight', 'bold');
+    title('各方法平均运行时间（跨SNR平均）', 'FontSize', 18, 'FontWeight', 'bold');
+
+    % 处理数值范围差异：当最大/最小(非零) > 50 时使用对数刻度
+    nonzero = avg_times_sorted(avg_times_sorted > 0);
+    if ~isempty(nonzero) && (max(nonzero) / min(nonzero) > 50)
+        set(gca, 'XScale', 'log');
+        % 对数刻度时，添加小的 offset 显示为标签
+    end
+
+    % 添加数值标签（在条形右侧）
+    for i = 1:n_methods
+        val = avg_times_sorted(i);
+        if ~isnan(val)
+            if strcmp(get(gca, 'XScale'), 'log')
+                text(max(nonzero)*0.01, i, sprintf('%.2f', val), 'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', 'FontSize', 11, 'FontWeight', 'bold');
+            else
+                text(val, i, sprintf('  %.2f', val), 'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', 'FontSize', 11, 'FontWeight', 'bold');
+            end
+        end
+    end
+
+    grid on; box on;
+    fprintf('✓ 平均运行时间对比图已显示\n');
+end
 
 function plot_comparison(results_dict, method_names, output_dir, varargin)
 % 生成对比图表 - 4个子图，带(a)(b)(c)(d)标识
@@ -696,7 +845,7 @@ end
 
 %% ===================== 辅助函数 =====================
 
-function process_snr_level(config, current_snr, true_signals, results_dir)
+function results_out = process_snr_level(config, current_snr, true_signals, results_dir)
 % 处理单个SNR级别的所有方法预测结果
     
     % 扫描该SNR级别对应的结果文件
@@ -778,16 +927,15 @@ function process_snr_level(config, current_snr, true_signals, results_dir)
     % 保存结果
     output_csv = fullfile(results_dir, sprintf('all_metrics_SNR%ddB.csv', current_snr));
     [results_table, sorted_methods] = save_results(results_dict, method_names, output_csv);
-    
+
     % 打印最终结果
     fprintf('\n================================================================================\n');
     fprintf('%s\n', center_text(sprintf('SNR=%ddB 最终结果排行', current_snr), 80));
     fprintf('================================================================================\n');
     disp(results_table);
-    
-    % 生成图表
-    plot_comparison(results_dict, sorted_methods, results_dir, sprintf('_SNR%ddB', current_snr));
-    plot_time_comparison(results_dict, sorted_methods, results_dir, sprintf('_SNR%ddB', current_snr));
+
+    % 返回结果字典（由上层聚合），不再在此处绘图
+    results_out = results_dict;
 end
 
 function text_out = center_text(text_in, width)
@@ -799,4 +947,12 @@ function text_out = center_text(text_in, width)
         padding = floor((width - text_len) / 2);
         text_out = [repmat(' ', 1, padding), text_in];
     end
+end
+
+function key = snr_field(snr)
+% 生成合法的结构字段名用于表示SNR（负号替换为 m）
+    s = num2str(snr);
+    s = strrep(s, '-', 'm');
+    s = strrep(s, ' ', '');
+    key = sprintf('snr_%s', s);
 end

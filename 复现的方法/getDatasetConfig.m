@@ -58,9 +58,12 @@ function config = getDatasetConfig(varargin)
             config.name = '全模拟数据集';
             config.fs = 250;  % Hz  
             config.windowSize = 1500;  % 样本数 (250Hz * 6s)
-            config.dataDir = fullfile(projectRoot, '生成全模拟数据', '已经生成好的数据');
-            config.description = '完全模拟生成的数据集,包含4种类型';
-            config.hasMultiSnrTest = false;
+            config.dataDir = fullfile(projectRoot, '生成全模拟数据', '已经生成好的数据', 'Multi_SNR_Merged');
+            config.description = '完全模拟生成的数据集,7个SNR级别,格式[n_samples, 1500]';
+            
+            % 多SNR测试集配置
+            config.testSnrLevels = [0, -2, -4, -8, -12, -14, -16];
+            config.hasMultiSnrTest = true;
             
         otherwise
             error('未知的数据集: %s. 可用选项: semi_simulated, fully_simulated', datasetName);

@@ -49,7 +49,7 @@ except Exception:
 # BATCH_SIZE, SAMPLING_RATE 等基本配置从 config.py 导入
 
 # ========== 微调阶段：分层学习率 ==========
-STAGE2_EPOCHS = 10000
+STAGE2_EPOCHS = 2000
 # STAGE2_LR_ENCODER = 1e-4     # Encoder慢速微调
 # STAGE2_LR_BOTTLENECK = 3e-3  # Bottleneck中速
 # STAGE2_LR_DECODER = 5e-3     # Decoder较快
@@ -57,14 +57,14 @@ STAGE2_EPOCHS = 10000
 # USE_WARMUP = False           # 不使用warmup
 
 WARMUP_EPOCHS = 10           # warmup轮数
-PATIENCE = 2000              # 早停耐心值
+PATIENCE = 250      # 早停耐心值
 
-STAGE2_LR_ENCODER = 0.000951
-STAGE2_LR_BOTTLENECK = 0.003900
-STAGE2_LR_DECODER = 0.004390
-STAGE2_LR_OUTPUT = 0.002148
-WEIGHT_DECAY = 0.000019
-GRAD_CLIP = 1.516651
+STAGE2_LR_ENCODER = 2.789130059268564e-05
+STAGE2_LR_BOTTLENECK = 0.00031203977078468576
+STAGE2_LR_DECODER = 5.9018783792285317e-05
+STAGE2_LR_OUTPUT =0.0007823540619457591
+WEIGHT_DECAY = 4.743593769950087e-06
+GRAD_CLIP = 0.9396635010974262
 USE_LR_DECAY = True
 
 
@@ -103,7 +103,7 @@ def get_data():
         train_x = scipy.io.loadmat(FINETUNE_CONTAMINATED_PATH)[DATA_KEY]
         train_y = scipy.io.loadmat(FINETUNE_PURE_PATH)[DATA_KEY]
         print(f"✓ 加载微调数据: {train_x.shape}")
-        print(f"  来源: 从5种SNR中均匀采样{int(FINETUNE_RATIO*100)}%训练数据")
+        print(f"  来源: 从7种SNR中均匀采样{int(FINETUNE_RATIO*100)}%训练数据")
     else:
         # 回退到旧逻辑：从完整训练集前面取比例数据（全模拟数据集）
         print(f"✓ 未找到预生成的微调数据集，使用传统方式（从完整训练集前面取数据）")
@@ -164,6 +164,51 @@ def unfreeze_all(model):
     """解冻所有层"""
     for param in model.parameters():
         param.requires_grad = True
+
+
+def _strip_module_prefix(state_dict):
+    """如果 state_dict 的 key 带有 `module.` 前缀，去掉它（DataParallel 情况）。"""
+    new_state = {}
+    for k, v in state_dict.items():
+        if k.startswith('module.'):
+            new_state[k[len('module.'):]] = v
+        else:
+            new_state[k] = v
+    return new_state
+
+
+def load_checkpoint_to_model(model, path, device, strict=False):
+    """安全地将 checkpoint 加载到 model 中。
+
+    支持 checkpoint 为 dict（包含 'model_state_dict' 或 'state_dict'）或直接为 state_dict。
+    自动去掉 DataParallel 的 'module.' 前缀，并以非严格模式加载以避免键名不匹配导致崩溃，
+    同时打印缺失/多余键的信息供调试。
+    """
+    checkpoint = torch.load(path, map_location=device)
+    if isinstance(checkpoint, dict):
+        if 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+        elif 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        else:
+            # 可能是直接保存的 state_dict
+            state_dict = checkpoint
+    else:
+        state_dict = checkpoint
+
+    # 如果 key 带 module. 前缀则去掉
+    if isinstance(state_dict, dict) and any(k.startswith('module.') for k in state_dict.keys()):
+        state_dict = _strip_module_prefix(state_dict)
+
+    # 以非严格模式加载并打印不匹配信息
+    load_res = model.load_state_dict(state_dict, strict=False)
+    missing = getattr(load_res, 'missing_keys', None)
+    unexpected = getattr(load_res, 'unexpected_keys', None)
+    if missing:
+        print(f'⚠️  加载 checkpoint 时缺失的参数 ({len(missing)}): {missing[:5]}{"..." if len(missing)>5 else ""}')
+    if unexpected:
+        print(f'⚠️  加载 checkpoint 时多余的参数 ({len(unexpected)}): {unexpected[:5]}{"..." if len(unexpected)>5 else ""}')
+    print(f'✓ 从 {path} 加载权重（非严格模式）')
 
 
 def get_layerwise_params_stage2(model):
@@ -392,7 +437,7 @@ def main():
 
     # 加载数据
     train_x, train_y, val_x, val_y = get_data()
-    print('\n微调数据集（30%训练集）:', train_x.shape)
+    print('\n微调数据集:', train_x.shape)
     print('验证集:', val_x.shape)
 
     train_dataset = SupervisedDataset(train_x, train_y)
@@ -403,9 +448,9 @@ def main():
     # 创建模型并加载预训练权重
     model = DATNet(in_channels=1, base_channels=32).to(device)
 
-    pretrained_path = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best_old.pth'
+    pretrained_path = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best_rrmse.pth'
     if os.path.exists(pretrained_path):
-        model.load_state_dict(torch.load(pretrained_path, map_location=device))
+        load_checkpoint_to_model(model, pretrained_path, device, strict=False)
         print(f'✓ 加载预训练模型: {pretrained_path}')
     else:
         print(f'⚠️  未找到预训练模型: {pretrained_path}')
@@ -464,7 +509,7 @@ def main():
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_val_cc = val_cc
-            torch.save(model.state_dict(), 'DAT-Net-Unsupervised-v2_finetuned_best_10%数据.pth')
+            torch.save(model.state_dict(), 'DAT-Net-Unsupervised-v2_finetuned_best_30%数据.pth')
             print(f'  ✅ 保存最佳模型 (Val Loss: {val_loss:.6f}, CC: {val_cc:.4f})')
             no_improve_count = 0
         else:
@@ -492,10 +537,10 @@ def main():
     print(f'  - DAT-Net-Unsupervised-v2_finetuned_final.pth (最终模型)')
 
     # 加载最佳模型并在测试集上评估
-    best_model_path = 'DAT-Net-Unsupervised-v2_finetuned_best_10%数据.pth'
+    best_model_path = 'DAT-Net-Unsupervised-v2_finetuned_best_30%数据.pth'
     if os.path.exists(best_model_path):
         print(f'\n加载最佳模型进行测试集评估: {best_model_path}')
-        model.load_state_dict(torch.load(best_model_path, map_location=device))
+        load_checkpoint_to_model(model, best_model_path, device, strict=False)
         test_on_testset(model, device, 'best')
     else:
         print('\n⚠️  未找到最佳模型，跳过测试集评估')

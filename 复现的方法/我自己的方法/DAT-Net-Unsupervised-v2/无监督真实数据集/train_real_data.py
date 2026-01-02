@@ -269,12 +269,34 @@ def main():
     else:
         scheduler = None
     
+    # 如果存在已保存的 best 模型，则加载并在验证集上评估其损失以继续训练
+    if os.path.isfile(MODEL_SAVE_PATH):
+        try:
+            checkpoint = torch.load(MODEL_SAVE_PATH, map_location=device)
+            if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['model_state_dict'])
+            else:
+                model.load_state_dict(checkpoint)
+            print(f'已加载存在的最佳模型: {MODEL_SAVE_PATH}')
+            with torch.no_grad():
+                existing_val = validate(model, device, val_loader)
+            best_val_loss = existing_val['total']
+            print(f'已将 best_val_loss 设为 {best_val_loss:.6f}（来自已加载模型）')
+        except Exception as e:
+            print(f'加载已保存模型失败: {e}')
+            best_val_loss = float('inf')
+    else:
+        best_val_loss = float('inf')
     # 训练循环
     print('\n' + '='*80)
     print('开始训练')
     print('='*80)
     
-    best_val_loss = float('inf')
+    # 保留之前加载模型时设置的 best_val_loss（若存在），否则初始化
+    try:
+        best_val_loss
+    except NameError:
+        best_val_loss = float('inf')
     patience_counter = 0
     start_time = time()
     

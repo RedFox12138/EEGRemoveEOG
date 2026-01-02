@@ -9,58 +9,6 @@ import os
 REAL_DATA_PATH = r'D:\Pycharm_Projects\EOG Remove\真实数据集\eog_dataset.mat'
 DATA_KEY = 'eog_dataset'  # .mat 文件中的 key
 
-# # ========== 数据参数 ==========
-# SAMPLING_RATE = 250.0  # 采样率 (Hz) - 根据您的数据调整
-# WINDOW_SIZE = 1500  # 窗口大小 (样本数) - 与您的数据一致
-# WINDOW_DURATION = WINDOW_SIZE / SAMPLING_RATE  # 6 秒
-#
-# # ========== 训练超参数 ==========
-# BATCH_SIZE = 256
-# EPOCHS = 1500
-# LEARNING_RATE = 0.00013584861542296768  # 调优后的学习率
-# WEIGHT_DECAY = 2.8946049993447897e-06
-#
-# USE_LR_SCHEDULER = True
-# WARMUP_EPOCHS = 50
-# MIN_LR = 0.00029605465131828925  # 最小学习率
-#
-# GRAD_CLIP = 2.040786230582241
-# PATIENCE = 200
-#
-# # ========== 数据集划分比例 ==========
-# # 由于没有验证集，我们从真实数据中随机抽取一部分作为验证
-# TRAIN_RATIO = 0.9  # 90% 用于训练
-# VAL_RATIO = 0.1    # 10% 用于验证
-# RANDOM_SEED = 42   # 随机种子，确保可复现
-#
-# # ========== 损失函数权重 (针对眨眼伪影优化) ==========
-# # 针对眨眼干扰去除力度不够的问题，调整以下参数：
-# # 1. 增强低频伪影检测（LAMBDA_LOW）- 眨眼是低频信号
-# # 2. 提高伪影分离能力（LAMBDA_TEACHER、LAMBDA_DECOR）
-# # 3. 增加伪影检测权重（GAMMA_ART_WEIGHT、BOOST_SCALE）
-# # 4. 降低内容保持约束，允许更激进的去噪
-#
-# LAMBDA_REC = 0.6231430094052658      # 重建损失（保持不变）
-# LAMBDA_CON = 1.6906797711480066    # 一致性损失（保持不变）
-# LAMBDA_TEACHER = 0.3983882099808448    # ↑ 提高 Teacher 损失，增强伪影分离（原 0.1804）
-# LAMBDA_N2V = 0.3504727099753845      # Noise2Void 损失（保持不变）
-# LAMBDA_BAND = 0.7880934874940418        # ↑ 提高频带损失，增强频域约束（原 0.4997）
-# LAMBDA_LOW = 0.22086344435187721        # ↑↑ 大幅提高低频损失，针对眨眼（原 0.0290）
-# LAMBDA_DECOR =0.35017644386716507       # ↑ 提高去相关损失，增强EEG/EOG分离（原 0.2217）
-# LAMBDA_CONTENT = 0.17001101481153022   # ↓ 降低内容损失，允许更激进去噪（原 0.1662）
-#
-# # ========== Artifact-aware 掩蔽参数 (增强伪影检测) ==========
-# MASK_BASE = 0.22691665858423754         # ↑ 提高基础掩蔽率，更多关注伪影区域（原 0.0633）
-# BOOST_SCALE = 0.1500882238067326       # ↑ 提高伪影区域增强系数（原 0.1334）
-# GAMMA_ART_WEIGHT = 0.901105955690533  # ↑ 提高伪影加权因子（原 0.6339）
-#
-# # ========== 内部算法参数 (优化眨眼检测) ==========
-# ARTIFACT_WIN_SIZE = 93  # ↑ 增大窗口捕获更长的眨眼伪影（原 82）
-# MASK_NEIGHBORHOOD = 5    # N2V掩蔽的邻域半径（保持不变）
-# TEACHER_CUTOFF = 8.912118093865404     # ↓ 降低高通截止，更好分离低频眨眼（原 4.6188）
-# LOWPASS_CUTOFF = 5.6182373303197     # ↑ 提高低通截止，增强低频伪影检测（原 2.7216）
-# TEACHER_THRESHOLD = 0.7475966258794353 # ↓ 降低阈值，更宽松应用 teacher 损失（原 0.7651）
-
 # ========== 数据参数 ==========
 SAMPLING_RATE = 250.0  # 采样率 (Hz) - 根据您的数据调整
 WINDOW_SIZE = 1500  # 窗口大小 (样本数) - 与您的数据一致
@@ -69,15 +17,15 @@ WINDOW_DURATION = WINDOW_SIZE / SAMPLING_RATE  # 6 秒
 # ========== 训练超参数 ==========
 BATCH_SIZE = 256
 EPOCHS = 1500
-LEARNING_RATE = 0.0090  # 调优后的学习率
+LEARNING_RATE = 0.0001  # 调优后的学习率
 WEIGHT_DECAY = 1e-5
 
 USE_LR_SCHEDULER = True
-WARMUP_EPOCHS = 50
-MIN_LR = 5e-4  # 最小学习率
+WARMUP_EPOCHS = 20
+MIN_LR = 5e-6  # 最小学习率
 
 GRAD_CLIP = 1.0
-PATIENCE = 150
+PATIENCE = 200
 
 # ========== 数据集划分比例 ==========
 # 由于没有验证集，我们从真实数据中随机抽取一部分作为验证
@@ -92,10 +40,10 @@ RANDOM_SEED = 42   # 随机种子，确保可复现
 # 3. 增加伪影检测权重（GAMMA_ART_WEIGHT、BOOST_SCALE）
 # 4. 降低内容保持约束，允许更激进的去噪
 
-LAMBDA_REC = 0.7864      # 重建损失（保持不变）
-LAMBDA_CON = 1.5586      # 一致性损失（保持不变）
-LAMBDA_TEACHER = 0.1804   # ↑ 提高 Teacher 损失，增强伪影分离（原 0.1804）
-LAMBDA_N2V = 0.3515      # Noise2Void 损失（保持不变）
+LAMBDA_REC = 100      # 重建损失（保持不变）
+LAMBDA_CON = 0.1      # 一致性损失（保持不变）
+LAMBDA_TEACHER = 0.1  # ↑ 提高 Teacher 损失，增强伪影分离（原 0.1804）
+LAMBDA_N2V = 0.1     # Noise2Void 损失（保持不变）
 LAMBDA_BAND = 0.4997       # ↑ 提高频带损失，增强频域约束（原 0.4997）
 LAMBDA_LOW = 0.0290        # ↑↑ 大幅提高低频损失，针对眨眼（原 0.0290）
 LAMBDA_DECOR = 0.2217       # ↑ 提高去相关损失，增强EEG/EOG分离（原 0.2217）
@@ -107,7 +55,7 @@ BOOST_SCALE = 0.1334      # ↑ 提高伪影区域增强系数（原 0.1334）
 GAMMA_ART_WEIGHT =  0.6339 # ↑ 提高伪影加权因子（原 0.6339）
 
 # ========== 内部算法参数 (优化眨眼检测) ==========
-ARTIFACT_WIN_SIZE = 82  # ↑ 增大窗口捕获更长的眨眼伪影（原 82）
+ARTIFACT_WIN_SIZE = 100 # ↑ 增大窗口捕获更长的眨眼伪影（原 82）
 MASK_NEIGHBORHOOD = 5    # N2V掩蔽的邻域半径（保持不变）
 TEACHER_CUTOFF = 4.6188     # ↓ 降低高通截止，更好分离低频眨眼（原 4.6188）
 LOWPASS_CUTOFF = 2.7216    # ↑ 提高低通截止，增强低频伪影检测（原 2.7216）

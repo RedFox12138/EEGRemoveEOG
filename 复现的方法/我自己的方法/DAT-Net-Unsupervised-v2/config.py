@@ -144,7 +144,7 @@ PREDICTION_SAVE_PATH = os.path.join(RESULTS_DIR, f'DAT-Net-Unsupervised-v2_{DATA
 
 # ========== 微调参数 ==========
 FINETUNE_RATIOS = [0.1, 0.2, 0.3]  # 10%, 20%, 30%的数据用于微调
-FINETUNE_RATIO = 0.2  # 默认使用20%数据进行微调
+FINETUNE_RATIO = 0.3  # 默认使用20%数据进行微调
 FINETUNE_EPOCHS = 300
 FINETUNE_LR = 0.001
 FINETUNE_PATIENCE = 50
