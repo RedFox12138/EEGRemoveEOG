@@ -191,8 +191,14 @@ class TCNBottleneck(nn.Module):
     """
     TCN瓶颈层: 堆叠多个TCN残差块，膨胀率指数增长
     用于捕捉长程时序依赖
+    
+    优化说明：
+    - 输入长度512，经3层下采样(每层/2)后，瓶颈层特征长度为64
+    - 使用4个Block配合kernel_size=7时，感受野约91，足以覆盖特征图长度64
+    - 感受野计算: Block0(dilation=1):7 + Block1(dilation=2):13 + Block2(dilation=4):25 + Block3(dilation=8):49 ≈ 91
+    - 避免使用过多Block导致感受野远超特征长度，造成无效计算和参数冗余
     """
-    def __init__(self, channels=128, num_blocks=3, kernel_size=7, dropout=0.2):
+    def __init__(self, channels=128, num_blocks=4, kernel_size=7, dropout=0.2):
         super(TCNBottleneck, self).__init__()
         
         blocks = []
@@ -303,10 +309,11 @@ class DATNet(nn.Module):
         self.encoder2 = DownBlock(base_channels, base_channels * 2)  # 32 -> 64
         self.encoder3 = DownBlock(base_channels * 2, base_channels * 4)  # 64 -> 128
         
-        # ========== 瓶颈层 (TCN，扩充到10块) ==========
+        # ========== 瓶颈层 (TCN，优化为4块) ==========
+        # 特征长度64 (512/2/2/2)，4个Block的感受野≈91，足够覆盖
         self.bottleneck = TCNBottleneck(
             channels=base_channels * 4,  # 128
-            num_blocks=10,  # 从原始7块扩充到10块
+            num_blocks=4,  # 优化：避免感受野过大造成无效计算
             kernel_size=7,
             dropout=0.2
         )

@@ -1,6 +1,9 @@
 
 import os
 import sys
+# 在导入任何本地配置前，设置环境变量以选择数据集
+os.environ['DATNET_DATASET_NAME'] = 'semi_simulated'
+
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -38,30 +41,29 @@ except Exception:
     def print_metrics(m, prefix=""): pass
 
 # ========== 数据集选择 ==========
-# 数据集由 config.py 中的 DATASET_NAME 变量控制
-# 可选值: 'semi_simulated' 或 'fully_simulated'
-# 请修改 config.py 中的 DATASET_NAME 来切换数据集
+# 数据集通过顶部的环境变量 os.environ['DATNET_DATASET_NAME'] 自动控制
+# 当前模式: semi_simulated (半模拟数据集)
 # ================================
 
 # --- 全局常量配置 ---
 BATCH_SIZE = 128
-EPOCHS = 20# 在调优时减少epoch数量以加快速度
+EPOCHS = 30# 在调优时减少epoch数量以加快速度
 # SAMPLING_RATE 已从 config.py 导入，会根据数据集自动适配
 GRAD_CLIP = 1.0
 DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # 预训练模型路径配置
 # 根据数据集类型自动选择对应的最佳RRMSE模型
-if DATASET_NAME == 'fully_simulated':
-    PRETRAINED_MODEL_PATH = 'checkpoints/datnet_unsupervised_v2_fully_simulated_best_rrmse.pth'
+if DATASET_NAME == 'semi_simulated':
+    PRETRAINED_MODEL_PATH = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best_rrmse.pth'
 else:
-    PRETRAINED_MODEL_PATH = 'checkpoints/datnet_unsupervised_v2_fully_simulated_best_rrmse.pth'
+    PRETRAINED_MODEL_PATH = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best_rrmse.pth'
 
 print(f"将基于预训练模型进行参数调优: {PRETRAINED_MODEL_PATH}")
 
 # 全局变量：记录当前最佳参数
-BEST_PARAMS_LOG_FILE = 'best_params_live_fully_simulated.json'
-BEST_MODEL_CHECKPOINT = 'checkpoints/tune_best_model.pth'  # 保存调优过程中的最佳模型
+BEST_PARAMS_LOG_FILE = 'best_params_live_semi_simulated.json'
+BEST_MODEL_CHECKPOINT = 'checkpoints/tune_best_model_semi_simulated.pth'  # 保存调优过程中的最佳模型
 # 存储最佳指标: {'avg_rrmse': float, 'per_snr': {snr: rrmse}}
 global_best_metrics = {'avg_rrmse': float('inf'), 'per_snr': {}}
 
@@ -495,22 +497,13 @@ def objective(trial, previous_best_params=None, previous_checkpoint=None):
         if current_val_loss < best_val_loss:
             best_val_loss = current_val_loss
         
-        # --- 择优保存逻辑 (Strict Improvement) ---
-        # 只有当每一个SNR的RRMSE都优于(小于)历史最佳时，才保存
-        baseline_per_snr = global_best_metrics.get('per_snr', {})
-        is_strictly_better = False
+        # --- 择优保存逻辑 (Average Improvement) ---
+        # 只要平均RRMSE优于(小于)历史最佳时，就保存
+        baseline_avg_rrmse = global_best_metrics.get('avg_rrmse', float('inf'))
+        is_better = current_avg_rrmse < baseline_avg_rrmse
         
-        if not baseline_per_snr:
-            is_strictly_better = True
-        else:
-            # 找出共同的SNR进行比较
-            common_snrs = set(baseline_per_snr.keys()) & set(current_per_snr.keys())
-            if common_snrs:
-                # 检查是否所有common SNR都更优 (RRMSE更小)
-                is_strictly_better = all(current_per_snr[s] < baseline_per_snr[s] for s in common_snrs)
-        
-        if is_strictly_better:
-            print(f"  ✅ Epoch {epoch}: 发现全局更优模型 (所有SNR RRMSE均优化)")
+        if is_better:
+            print(f"  ✅ Epoch {epoch}: 发现全局更优模型 (Avg RRMSE: {baseline_avg_rrmse:.6f} -> {current_avg_rrmse:.6f})")
             
             global_best_metrics = current_metrics
             save_best_params(
@@ -568,8 +561,8 @@ def main():
     
     study = optuna.create_study(
         direction='minimize',
-        study_name='dat-net-unsupervised-v2-tuning-rrmse',
-        storage='sqlite:///dat-net-tuning_12_26.db',
+        study_name='dat-net-unsupervised-v2-tuning-rrmse-semi',
+        storage='sqlite:///dat-net-tuning_semi_simulated.db',
         load_if_exists=True,
         pruner=pruner
     )

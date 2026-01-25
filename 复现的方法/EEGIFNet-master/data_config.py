@@ -22,6 +22,7 @@ SAMPLING_RATE = dataset_config['sampling_rate']
 WINDOW_SIZE = dataset_config['window_size']
 DATA_DIR = dataset_config['data_dir']
 DATA_KEY = dataset_config['data_key']
+PURE_KEY = dataset_config.get('pure_key', dataset_config['data_key'])  # 纯净数据键名
 
 # 数据文件路径
 TRAIN_CONTAMINATED_PATH = dataset_config['train_contaminated_path']
@@ -38,8 +39,11 @@ else:
     TEST_CONTAMINATED_PATH = None
     TEST_PURE_PATH = None
 
+# ========== 数据集切换说明 ==========
+# 切换到全模拟数据集：DATASET_NAME = 'fully_simulated'
+
 # ========== 训练超参数 ==========
-BATCH_SIZE = 256
+BATCH_SIZE = 200
 EPOCHS = 1000
 LEARNING_RATE = 0.001
 PATIENCE = 100

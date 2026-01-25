@@ -30,6 +30,11 @@ except Exception:
 
 from s2s_model_1d import Self2Self_UNet1D
 
+# ========== 数据集选择 ==========
+# 数据集由 data_config.py 中的 DATASET_NAME 变量控制
+# 可选值: 'semi_simulated' 或 'fully_simulated'
+# 请修改 data_config.py 中的 DATASET_NAME 来切换数据集
+# ================================
 
 # Self2Self推理参数
 N_PREDICTIONS = 100  # 多次预测平均的次数
@@ -72,7 +77,7 @@ def load_test_data_by_snr(snr_db):
     pure_path = test_snr_paths[snr_db]['pure']
     
     test_input = scipy.io.loadmat(contaminated_path)[DATA_KEY]
-    test_output = scipy.io.loadmat(pure_path)[DATA_KEY]
+    test_output = scipy.io.loadmat(pure_path)[PURE_KEY]
     return test_input, test_output
 
 

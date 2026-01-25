@@ -77,6 +77,10 @@ class Self2Self_UNet1D(nn.Module):
     - 训练时使用Dropout作为掩蔽机制
     - 推理时通过多次前向传播和平均来获得稳定输出
     
+    注：原始Self2Self源码使用了Partial Convolution来处理掩蔽带来的不连续性。
+    本复现使用了Standard Convolution + Dropout的近似方案，这在1D信号处理中
+    通常是足够的，且避免了复杂的自定义算子实现。
+    
     Parameters:
     -----------
     in_channels : int
@@ -123,7 +127,7 @@ class Self2Self_UNet1D(nn.Module):
         self.dec_conv_final_a = Conv1DBlock(base_channels, 64, kernel_size=3, dropout=dropout)
         self.dec_conv_final_b = Conv1DBlock(64, 32, kernel_size=3, dropout=dropout)
         
-        # 输出层（使用sigmoid激活）
+        # 输出层（使用sigmoid激活，输出[0,1]）
         self.output_conv = nn.Conv1d(32, in_channels, 1)
         self.output_activation = nn.Sigmoid()
     

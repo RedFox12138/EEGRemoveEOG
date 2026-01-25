@@ -13,7 +13,12 @@ from cbamdropout import EEGNetMorletWindowCBAMDropout
 
 # 导入数据集配置
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from data_config import *
+from data_config import dataset_config, DATA_KEY, PURE_KEY, DATASET_NAME
+
+# ========== 数据集选择 ==========
+# 当前使用的数据集由 data_config.py 中的 DATASET_NAME 变量控制
+# 可选: 'semi_simulated' 或 'fully_simulated'
+# ================================
 
 BATCH_SIZE = 50
 
@@ -51,7 +56,7 @@ def load_test_data_by_snr(snr_db):
     pure_path = test_snr_paths[snr_db]['pure']
     
     test_input = scipy.io.loadmat(contaminated_path)[DATA_KEY]
-    test_output = scipy.io.loadmat(pure_path)[DATA_KEY]
+    test_output = scipy.io.loadmat(pure_path)[PURE_KEY]
 
     test_set = EEGDatasetASNetStyle(test_input, test_output, is_train=False)
     test_loader = Data.DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)

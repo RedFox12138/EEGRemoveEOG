@@ -67,8 +67,8 @@ def get_data(data_path, batch_size):
     train_input = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
     verify_input = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
     
-    train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
-    verify_output = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
+    train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[PURE_KEY]
+    verify_output = scipy.io.loadmat(VAL_PURE_PATH)[PURE_KEY]
     
     print(f"加载数据: 训练集={train_input.shape}, 验证集={verify_input.shape}")
     print(f"时间点数量: {train_input.shape[1]}")
@@ -346,6 +346,23 @@ def main():
     best_acc = 0
     epochs_no_improve = 0  # Early stopping计数器
     PATIENCE = 100  # Early stopping patience
+    
+    # 自动加载已有的best模型继续训练
+    inet_best_path = os.path.join(args.save_dir, 'EEGIFNet_INet_best.pkl')
+    mnet_best_path = os.path.join(args.save_dir, 'EEGIFNet_MNet_best.pkl')
+    
+    if os.path.exists(inet_best_path) and os.path.exists(mnet_best_path):
+        print(f"\n发现已有模型: {inet_best_path} 和 {mnet_best_path}")
+        try:
+            I_model.load_state_dict(torch.load(inet_best_path, map_location=device))
+            M_model.load_state_dict(torch.load(mnet_best_path, map_location=device))
+            print(f"✓ 成功加载INet和MNet模型，将从已有最佳模型继续训练")
+        except Exception as e:
+            print(f"⚠ 加载模型失败: {e}")
+            print("将从头开始训练")
+    else:
+        print(f"\n未找到已有模型，将从头开始训练")
+    
     begin_time = time()
 
     for epoch in range(args.epochs):

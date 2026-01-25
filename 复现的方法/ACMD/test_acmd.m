@@ -45,7 +45,7 @@ data_train_contaminated = load(cfg.trainContaminatedPath);
 data_train_clean = load(cfg.trainPurePath);
 
 train_contaminated = data_train_contaminated.(cfg.dataKey);
-train_clean = data_train_clean.(cfg.dataKey);
+train_clean = data_train_clean.(cfg.pureKey);  % 使用pureKey加载纯净数据
 
 % 采样一部分训练数据计算阈值(避免过慢)
 n_samples_for_threshold = min(50, size(train_contaminated, 1));
@@ -118,7 +118,7 @@ for snr_idx = 1:length(snr_levels)
     data_clean = load(test_pure_path);
     
     test_contaminated = data_contaminated.(cfg.dataKey);
-    test_clean = data_clean.(cfg.dataKey);
+    test_clean = data_clean.(cfg.pureKey);  % 使用pureKey加载纯净数据
     
     num_test = size(test_contaminated, 1);
     fprintf('SNR=%ddB 测试集样本数: %d\n', snr, num_test);

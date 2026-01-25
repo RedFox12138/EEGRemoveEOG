@@ -37,7 +37,7 @@ except Exception:
 
 # ========== 配置 ==========
 BATCH_SIZE = 256
-SAMPLING_RATE = 200.0
+SAMPLING_RATE = 250
 
 
 class SupervisedDataset(Dataset):
@@ -52,15 +52,15 @@ class SupervisedDataset(Dataset):
         noisy = self.noisy[idx]
         clean = self.clean[idx]
         
-        # 归一化（注意：clean也要用noisy的norm来归一化，保持一致）
+        # Max-Abs归一化（与原始版本一致）
         norm = np.max(np.abs(noisy))
         if norm == 0:
             norm = 1.0
         
-        noisy_norm = torch.tensor(noisy.astype('float32') / norm, dtype=torch.float32)
-        clean_norm = torch.tensor(clean.astype('float32') / norm, dtype=torch.float32)
+        noisy_norm = (noisy / norm).astype('float32')
+        clean_norm = (clean / norm).astype('float32')
         
-        return noisy_norm, clean_norm, norm
+        return torch.tensor(noisy_norm), torch.tensor(clean_norm), norm
 
 
 def load_test_data_by_snr(snr_db):
@@ -71,7 +71,7 @@ def load_test_data_by_snr(snr_db):
     pure_path = TEST_SNR_PATHS[snr_db]['pure']
     
     test_x = scipy.io.loadmat(contaminated_path)[DATA_KEY]
-    test_y = scipy.io.loadmat(pure_path)[DATA_KEY]
+    test_y = scipy.io.loadmat(pure_path)[PURE_KEY]
     return test_x, test_y
 
 
@@ -151,19 +151,21 @@ def test_model(model_path, output_suffix, device):
             for noisy, clean, norm in test_loader:
                 sample_count += noisy.shape[0]
                 
-                # 与训练时保持一致：输入归一化数据，在循环中乘回 norm，然后传入模型
-                noisy_t = noisy.float().unsqueeze(1).to(device)  # (B, 1, L) - 归一化的
-                norm_t = norm.float().view(-1, 1, 1).to(device)  # (B, 1, 1)
-                noisy_scaled = noisy_t * norm_t  # 恢复原始尺度（与训练时一致）
+                noisy_t = noisy.float().unsqueeze(1).to(device)  # (B, 1, L)
+                clean_t = clean.float().unsqueeze(1).to(device)  # (B, 1, L)
+                norm_t = norm.float().to(device).view(-1, 1, 1)  # (B, 1, 1)
+                
+                # 恢复原始幅度: max-abs反归一化
+                noisy_scaled = noisy_t * norm_t
+                clean_scaled = clean_t * norm_t
                 
                 # 前向传播 - 使用原始尺度的数据（与训练时一致）
                 eeg_clean, eog_artifact = model(noisy_scaled)
                 
-                # 模型输出已经是原始尺度，targets也要恢复到原始尺度
+                # 模型输出已经是原始尺度
                 all_preds.append(eeg_clean.squeeze(1).cpu().numpy())
                 all_eog_preds.append(eog_artifact.squeeze(1).cpu().numpy())
-                # clean是归一化的，需要乘回norm恢复原始尺度
-                all_targets.append(clean.cpu().numpy() * norm.cpu().numpy().reshape(-1, 1))
+                all_targets.append(clean_scaled.squeeze(1).cpu().numpy())
         
         total_time = time() - start
         time_per_sample = total_time / max(1, sample_count)
@@ -190,7 +192,7 @@ def test_model(model_path, output_suffix, device):
         # 保存结果（带SNR标识）
         out_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
         os.makedirs(out_dir, exist_ok=True)
-        save_path = os.path.join(out_dir, f'DAT-Net-Unsupervised-v2-30%数据_{output_suffix}_predictions{save_suffix}.mat')
+        save_path = os.path.join(out_dir, f'DAT-Net-Unsupervised-improve-20%数据_{output_suffix}_predictions{save_suffix}.mat')
         scipy.io.savemat(save_path, {
             'predictions': all_preds,
             'eog_artifacts': all_eog_preds,
@@ -205,7 +207,7 @@ def test_model(model_path, output_suffix, device):
 
 def main():
     parser = argparse.ArgumentParser(description='DAT-Net-Unsupervised-v2 测试脚本')
-    parser.add_argument('--model', type=str, default='DAT-Net-Unsupervised-v2_finetuned_best_30%鏁版嵁.pth',
+    parser.add_argument('--model', type=str, default='DAT-Net-Unsupervised-v2_finetuned_best_20%鏁版嵁.pth',
                         help='模型权重文件路径')
     parser.add_argument('--suffix', type=str, default='finetuned_best',
                         help='输出文件后缀名')

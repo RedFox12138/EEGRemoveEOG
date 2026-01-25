@@ -155,14 +155,17 @@ def unsupervised_dat_loss_artifact_v2(
     loss_rec = (w * (y_B - eeg_raw_input) ** 2).sum() / (w.sum() + 1e-8)
 
     # ---------- 损失项 2: A/B 一致性损失（clean & artifact 通道） ----------
-    diff_c = c_A - c_B
-    diff_a = a_A - a_B
+    if lambda_con > 0.0:
+        diff_c = c_A - c_B
+        diff_a = a_A - a_B
 
-    # 对一致性损失也可以按伪影概率加权
-    weight_con = (1.0 + gamma_art_weight * p_art)
-    loss_con_clean = (weight_con * (diff_c ** 2)).mean()
-    loss_con_art = (weight_con * (diff_a ** 2)).mean()
-    loss_con = loss_con_clean + loss_con_art
+        # 对一致性损失也可以按伪影概率加权
+        weight_con = (1.0 + gamma_art_weight * p_art)
+        loss_con_clean = (weight_con * (diff_c ** 2)).mean()
+        loss_con_art = (weight_con * (diff_a ** 2)).mean()
+        loss_con = loss_con_clean + loss_con_art
+    else:
+        loss_con = torch.tensor(0.0, device=device)
 
     # ---------- 损失项 3: 可选的 N2V 掩蔽重建（在分支 A 的 mask 上） ----------
     if lambda_n2v > 0.0:
@@ -177,17 +180,22 @@ def unsupervised_dat_loss_artifact_v2(
         loss_n2v = torch.tensor(0.0, device=device)
 
     # ---------- 损失项 4: Artifact-aware teacher（high-pass/low-pass） ----------
-    x_hp = _fft_highpass(eeg_raw_input, fs, cutoff=teacher_cutoff)
-    x_art = eeg_raw_input - x_hp
+    if lambda_teacher > 0.0:
+        x_hp = _fft_highpass(eeg_raw_input, fs, cutoff=teacher_cutoff)
+        x_art = eeg_raw_input - x_hp
 
-    mask_teacher = (p_art > teacher_threshold)
-    if mask_teacher.sum() > 0:
-        loss_teacher_clean = F.mse_loss(c_B[mask_teacher], x_hp[mask_teacher])
-        loss_teacher_art = F.mse_loss(a_B[mask_teacher], x_art[mask_teacher])
+        mask_teacher = (p_art > teacher_threshold)
+        if mask_teacher.sum() > 0:
+            loss_teacher_clean = F.mse_loss(c_B[mask_teacher], x_hp[mask_teacher])
+            loss_teacher_art = F.mse_loss(a_B[mask_teacher], x_art[mask_teacher])
+        else:
+            loss_teacher_clean = torch.tensor(0.0, device=device)
+            loss_teacher_art = torch.tensor(0.0, device=device)
+        loss_teacher = loss_teacher_clean + loss_teacher_art
     else:
         loss_teacher_clean = torch.tensor(0.0, device=device)
         loss_teacher_art = torch.tensor(0.0, device=device)
-    loss_teacher = loss_teacher_clean + loss_teacher_art
+        loss_teacher = torch.tensor(0.0, device=device)
 
     # ---------- 损失项 5: 频带先验与解耦 ----------
     # 5.1 频带先验：clean应该保留高频EEG特征，artifact应该保留低频伪影特征

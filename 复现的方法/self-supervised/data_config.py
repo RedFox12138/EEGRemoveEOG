@@ -22,6 +22,7 @@ SAMPLING_RATE = dataset_config['sampling_rate']
 WINDOW_SIZE = dataset_config['window_size']
 DATA_DIR = dataset_config['data_dir']
 DATA_KEY = dataset_config['data_key']
+PURE_KEY = dataset_config.get('pure_key', dataset_config['data_key'])  # 纯净数据键名
 
 # 数据文件路径
 TRAIN_CONTAMINATED_PATH = dataset_config['train_contaminated_path']
@@ -47,9 +48,9 @@ else:
     TEST_SNR_PATHS = {}
 
 # ========== 训练超参数 ==========
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 EPOCHS = 1000
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.02
 PATIENCE = 100
 
 # ========== 模型保存路径 ==========

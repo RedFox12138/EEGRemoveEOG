@@ -35,9 +35,9 @@ from s2s_model_1d import Self2Self_UNet1D, self2self_loss
 
 
 # ========== 超参数配置 ==========
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 EPOCHS = 2000
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 1e-4  # 修正：与Self2Self源码保持一致 (源码默认为1e-4)
 WEIGHT_DECAY = 0.0
 
 # 学习率调度
@@ -97,7 +97,7 @@ def get_data():
     train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
     val_x = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
     try:
-        val_y = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
+        val_y = scipy.io.loadmat(VAL_PURE_PATH)[PURE_KEY]
     except Exception:
         val_y = None
     return train_x, val_x, val_y
@@ -268,6 +268,27 @@ def main():
         scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lambda)
     else:
         scheduler = None
+    
+    best_val_loss = float('inf')
+    best_metrics = None
+    patience_counter = 0
+    
+    # 自动加载已有的best模型继续训练
+    best_model_path = f'checkpoints/Self2Self_{DATASET_NAME}_best.pth'
+    if os.path.exists(best_model_path):
+        print(f"\n发现已有模型: {best_model_path}")
+        try:
+            model.load_state_dict(torch.load(best_model_path, map_location=device))
+            print(f"✓ 成功加载模型，将从已有最佳模型继续训练")
+        except Exception as e:
+            print(f"⚠ 加载模型失败: {e}")
+            print("将从头开始训练")
+    else:
+        print(f"\n未找到已有模型: {best_model_path}")
+        print("将从头开始训练")
+    
+    start_time = time()
+    n_pred = 100
     
     # 训练循环
     print(f'\n开始训练...')

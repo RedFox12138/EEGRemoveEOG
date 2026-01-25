@@ -47,8 +47,8 @@ def get_data():
     train_input = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
     verify_input = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
     
-    train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
-    verify_output = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
+    train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[PURE_KEY]
+    verify_output = scipy.io.loadmat(VAL_PURE_PATH)[PURE_KEY]
 
     train_dataset = EEGDataset(train_input, train_output, is_train=True)
     verify_dataset = EEGDataset(verify_input, verify_output, is_train=False)
@@ -68,7 +68,7 @@ def get_data():
     # 测试集仅在可用时加载（多SNR配置下不需要）
     if TEST_CONTAMINATED_PATH is not None:
         test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
-        test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+        test_output = scipy.io.loadmat(TEST_PURE_PATH)[PURE_KEY]
         test_dataset = EEGDataset(test_input, test_output, is_train=False)
         test_loader = Data.DataLoader(
             dataset=test_dataset,
@@ -169,9 +169,27 @@ NUM_EPOCHS = 1000
 best_val_loss = float('inf')  # 使用验证损失作为最佳模型选择标准(越小越好)
 best_model_path = f'{model_name}_best.pkl'
 
+# 早停配置
+PATIENCE = 30  # 验证损失不改善时的最大等待轮数
+patience_counter = 0  # 当前等待计数器
+
+# 自动加载已有的best模型继续训练
+if os.path.exists(best_model_path):
+    print(f"\n发现已有模型: {best_model_path}")
+    try:
+        model.load_state_dict(torch.load(best_model_path, map_location=device))
+        print(f"✓ 成功加载模型，将从已有最佳模型继续训练")
+    except Exception as e:
+        print(f"⚠ 加载模型失败: {e}")
+        print("将从头开始训练")
+else:
+    print(f"\n未找到已有模型: {best_model_path}")
+    print("将从头开始训练")
+
 print("="*60)
 print(f"开始训练 {model_name}")
 print(f"训练轮数: {NUM_EPOCHS}")
+print(f"早停patience: {PATIENCE}")
 print(f"批次大小: {BATCH_SIZE}")
 print(f"学习率: {learning_rate}")
 print(f"设备: {device}")
@@ -199,6 +217,19 @@ for epoch in range(NUM_EPOCHS):
         best_val_loss = val_loss
         torch.save(model.state_dict(), best_model_path)
         print(f"✓ 保存最佳模型 (Val Loss: {best_val_loss:.6f})")
+        patience_counter = 0  # 重置patience计数器
+    else:
+        patience_counter += 1
+        print(f"⚠ 验证损失未改善 (patience: {patience_counter}/{PATIENCE})")
+        
+        # 早停检查
+        if patience_counter >= PATIENCE:
+            print(f"\n{'='*60}")
+            print(f"早停触发! 验证损失已经 {PATIENCE} 轮未改善")
+            print(f"最佳验证损失: {best_val_loss:.6f}")
+            print(f"最佳模型已保存至: {best_model_path}")
+            print(f"{'='*60}")
+            break
     
     # 计算累计时间
     elapsed_time = time() - begin_time

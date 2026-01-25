@@ -26,6 +26,11 @@ from metrics_utils import compute_all_metrics, print_metrics
 # 导入数据配置
 from data_config import *
 
+# ========== 数据集选择 ==========
+# 数据集由 data_config.py 中的 DATASET_NAME 变量控制
+# 可选值: 'semi_simulated' 或 'fully_simulated'
+# 请修改 data_config.py 中的 DATASET_NAME 来切换数据集
+# ================================
 
 # ========== 配置 ==========
 INPUT_CHANNELS = 1
@@ -62,7 +67,7 @@ def load_test_data_by_snr(snr_db):
     pure_path = test_snr_paths[snr_db]['pure']
     
     test_input = scipy.io.loadmat(contaminated_path)[DATA_KEY]
-    test_output = scipy.io.loadmat(pure_path)[DATA_KEY]
+    test_output = scipy.io.loadmat(pure_path)[PURE_KEY]
     return test_input, test_output
 
 

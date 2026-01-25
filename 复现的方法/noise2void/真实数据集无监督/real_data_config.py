@@ -13,8 +13,9 @@ SAMPLING_RATE = 250.0
 WINDOW_SIZE = 1500
 
 # ========== 数据集划分比例 ==========
-TRAIN_RATIO = 0.9  # 90% 用于训练
+TRAIN_RATIO = 0.7  # 70% 用于训练
 VAL_RATIO = 0.1    # 10% 用于验证
+TEST_RATIO = 0.2   # 20% 用于测试
 RANDOM_SEED = 42
 
 # ========== 训练超参数 ==========

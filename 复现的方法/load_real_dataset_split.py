@@ -2,8 +2,8 @@
 真实数据集统一加载和划分工具
 
 提供统一的数据划分方案，确保所有方法使用相同的训练集/测试集划分
-- 训练集: 90% (用于无监督方法训练)
-- 测试集: 10% (用于所有方法测试评估)
+- 训练集: 80% (用于无监督方法训练)
+- 测试集: 20% (用于所有方法测试评估)
 - 随机种子: 42 (确保可复现)
 
 作者: GitHub Copilot
@@ -18,7 +18,7 @@ import os
 def load_real_dataset_split(
     data_path=None,
     data_key='eog_dataset',
-    train_ratio=0.9,
+    train_ratio=0.8,
     random_seed=42,
     return_train=False
 ):
@@ -28,15 +28,15 @@ def load_real_dataset_split(
     参数:
         data_path: str, 数据文件路径，默认为真实数据集路径
         data_key: str, .mat文件中的数据键名，默认 'eog_dataset'
-        train_ratio: float, 训练集比例，默认 0.9 (90%训练，10%测试)
+        train_ratio: float, 训练集+验证集比例，默认 0.8 (80%用于训练和验证，20%用于测试)
         random_seed: int, 随机种子，默认 42 (确保所有方法数据划分一致)
         return_train: bool, 是否返回训练集数据，默认 False
                       - True: 返回 (test_data, train_data)，用于无监督方法
                       - False: 只返回 test_data，用于有监督方法和传统方法
     
     返回:
-        test_data: ndarray, 测试集数据 (10% 的样本)
-        train_data: ndarray, 训练集数据 (90% 的样本)，仅当 return_train=True 时返回
+        test_data: ndarray, 测试集数据 (20% 的样本)
+        train_data: ndarray, 训练集数据 (80% 的样本)，仅当 return_train=True 时返回
     
     使用示例:
         # 只需要测试集数据 (有监督方法和传统方法)

@@ -67,12 +67,13 @@ def load_data():
     np.random.seed(RANDOM_SEED)
     indices = np.random.permutation(n_samples)
     
-    train_size = int(n_samples * TRAIN_RATIO)
-    val_indices = indices[train_size:]
+    # 按照 7:1:2 划分，取最后 20% 作为测试集
+    test_start_idx = int(n_samples * (TRAIN_RATIO + VAL_RATIO))
+    test_indices = indices[test_start_idx:]
     
-    test_x = data[val_indices]
+    test_x = data[test_indices]
     
-    print(f'  测试集样本数: {test_x.shape[0]} ({VAL_RATIO*100:.0f}%)')
+    print(f'  测试集样本数: {test_x.shape[0]} ({TEST_RATIO*100:.0f}%)')
     
     return test_x
 

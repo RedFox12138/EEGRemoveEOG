@@ -141,8 +141,9 @@ class DenoiseEEG(nn.Module):
         self.up2 = UnetUp(2 * n_feat, n_feat)
         self.trans4 = TransformerBlock(n_feat, length)
 
-        # 修正：移除奇怪的 GAP+Linear 和 Skip Connection
-        # 改为标准的 1x1 卷积输出头，将特征映射回单通道信号
+        # 改进：移除 Input Skip Connection (in_channels + n_feat -> n_feat)
+        # 原因：直接将原始含噪输入拼接到输出层，会诱导模型学习 "Identity Mapping" (直接输出输入)，
+        # 导致去噪效果变差。强制信号通过瓶颈层更有利于过滤噪声。
         self.out = nn.Conv1d(n_feat, in_channels, kernel_size=1)
 
     def forward(self, x):
@@ -160,10 +161,7 @@ class DenoiseEEG(nn.Module):
         up1 = self.up2(up2, down1)
         up1 = self.trans4(up1)
 
-        # 修正：严禁将原始输入 x 拼接到这里！
-        # 否则模型会直接学习恒等映射 (Identity Mapping)，导致无法去噪。
-        # out = self.out(torch.cat((up1, x), 1)) 
-        
+        # 改进：只使用解码器输出，不拼接原始输入 x
         out = self.out(up1)
         return out
     

@@ -39,6 +39,12 @@ from unsupervised_artifact_v2 import unsupervised_dat_loss_artifact_v2
 # 导入配置
 from config import *
 
+# ========== 数据集选择 ==========
+# 数据集由 config.py 中的 DATASET_NAME 变量控制
+# 可选值: 'semi_simulated' 或 'fully_simulated'
+# 请修改 config.py 中的 DATASET_NAME 来切换数据集
+# ================================
+
 class TestDataset(Dataset):
     def __init__(self, noisy, clean):
         self.noisy = noisy
@@ -48,10 +54,15 @@ class TestDataset(Dataset):
     def __getitem__(self, idx):
         noisy = self.noisy[idx]
         clean = self.clean[idx]
+        
+        # Max-Abs归一化（与原始版本一致）
         norm = np.max(np.abs(noisy))
         if norm == 0:
             norm = 1.0
-        return noisy.astype('float32') / norm, clean.astype('float32'), norm
+        
+        noisy_norm = (noisy / norm).astype('float32')
+        
+        return noisy_norm, clean.astype('float32'), norm
 
 
 def load_test_data_by_snr(snr_db):
@@ -62,7 +73,7 @@ def load_test_data_by_snr(snr_db):
     pure_path = TEST_SNR_PATHS[snr_db]['pure']
     
     test_input = scipy.io.loadmat(contaminated_path)[DATA_KEY]
-    test_output = scipy.io.loadmat(pure_path)[DATA_KEY]
+    test_output = scipy.io.loadmat(pure_path)[PURE_KEY]
     # 计算真实眼电伪影（污染信号 - 纯净信号）
     test_eog = test_input - test_output
     return test_input, test_output, test_eog
@@ -232,11 +243,11 @@ def main():
             for noisy, clean, norm in loader:
                 sample_count += noisy.shape[0]
                 
-                # ✅ 训练时的流程：输入归一化数据，在循环中乘回 norm，然后传入模型
-                # 测试时应该保持完全一致
                 noisy_t = noisy.float().unsqueeze(1).to(device)  # (B, 1, L) - 归一化的
-                norm_t = norm.float().view(-1,1,1).to(device)  # (B, 1, 1)
-                noisy_scaled = noisy_t * norm_t  # 恢复原始尺度（与训练时一致）
+                norm_t = norm.float().to(device).view(-1, 1, 1)  # (B, 1, 1)
+                
+                # 恢复原始幅度: max-abs反归一化
+                noisy_scaled = noisy_t * norm_t
 
                 # 前向传播 - 使用原始尺度的数据（与训练时一致）
                 eeg_clean, eog_artifact = model(noisy_scaled)

@@ -12,7 +12,8 @@ sys.path.insert(0, parent_dir)
 from dataset_config import get_dataset_config
 
 # ========== 数据集选择 ==========
-DATASET_NAME = 'semi_simulated'  # 可选: 'semi_simulated', 'fully_simulated'
+DATASET_NAME = 'fully_simulated'  # 可选: 'semi_simulated', 'fully_simulated'
+# 切换到全模拟数据集：DATASET_NAME = 'fully_simulated'
 
 # 获取数据集配置
 dataset_config = get_dataset_config(DATASET_NAME)
@@ -22,6 +23,7 @@ SAMPLING_RATE = dataset_config['sampling_rate']
 WINDOW_SIZE = dataset_config['window_size']
 DATA_DIR = dataset_config['data_dir']
 DATA_KEY = dataset_config['data_key']
+PURE_KEY = dataset_config.get('pure_key', dataset_config['data_key'])  # 纯净数据键名
 
 # 数据文件路径
 TRAIN_CONTAMINATED_PATH = dataset_config['train_contaminated_path']
@@ -39,7 +41,7 @@ else:
     TEST_PURE_PATH = None
 
 # ========== 训练超参数 ==========
-BATCH_SIZE = 200
+BATCH_SIZE = 128
 EPOCHS = 1000
 LEARNING_RATE = 0.001
 PATIENCE = 100

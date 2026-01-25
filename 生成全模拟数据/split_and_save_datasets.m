@@ -14,6 +14,7 @@ function split_and_save_datasets(allData, output_dir, snr_blink_levels, snr_eog_
 %   测试集: 10%
 %   微调集1: 10%
 %   微调集2: 20%
+%   微调集3: 30%
 %
 % 策略: 从每个(等级,类型)组合中均匀采样，确保各数据集的分布一致
 % ========================================================================
@@ -28,13 +29,15 @@ function split_and_save_datasets(allData, output_dir, snr_blink_levels, snr_eog_
     test_samples_per_combo = samplesPerLevelPerType - train_samples_per_combo - val_samples_per_combo;
     finetune1_samples_per_combo = round(samplesPerLevelPerType * 0.1);
     finetune2_samples_per_combo = round(samplesPerLevelPerType * 0.2);
+    finetune3_samples_per_combo = round(samplesPerLevelPerType * 0.3);
     
     fprintf('每个(等级,类型)组合的样本划分:\n');
     fprintf('  训练集: %d\n', train_samples_per_combo);
     fprintf('  验证集: %d\n', val_samples_per_combo);
     fprintf('  测试集: %d\n', test_samples_per_combo);
     fprintf('  微调集1(10%%): %d\n', finetune1_samples_per_combo);
-    fprintf('  微调集2(20%%): %d\n\n', finetune2_samples_per_combo);
+    fprintf('  微调集2(20%%): %d\n', finetune2_samples_per_combo);
+    fprintf('  微调集3(30%%): %d\n\n', finetune3_samples_per_combo);
     
     % 初始化索引列表
     train_indices = [];
@@ -42,6 +45,7 @@ function split_and_save_datasets(allData, output_dir, snr_blink_levels, snr_eog_
     test_indices = [];
     finetune1_indices = [];
     finetune2_indices = [];
+    finetune3_indices = [];
     
     % 为每个(等级,类型)组合分配样本
     for level = 1:num_levels
@@ -67,6 +71,7 @@ function split_and_save_datasets(allData, output_dir, snr_blink_levels, snr_eog_
             shuffled = train_combo_indices(randperm(length(train_combo_indices)));
             finetune1_indices = [finetune1_indices; shuffled(1:finetune1_samples_per_combo)];
             finetune2_indices = [finetune2_indices; shuffled(1:finetune2_samples_per_combo)];
+            finetune3_indices = [finetune3_indices; shuffled(1:finetune3_samples_per_combo)];
         end
     end
     
@@ -76,13 +81,15 @@ function split_and_save_datasets(allData, output_dir, snr_blink_levels, snr_eog_
     test_indices = test_indices(randperm(length(test_indices)));
     finetune1_indices = finetune1_indices(randperm(length(finetune1_indices)));
     finetune2_indices = finetune2_indices(randperm(length(finetune2_indices)));
+    finetune3_indices = finetune3_indices(randperm(length(finetune3_indices)));
     
     fprintf('数据集大小:\n');
     fprintf('  训练集: %d 样本\n', length(train_indices));
     fprintf('  验证集: %d 样本\n', length(val_indices));
     fprintf('  测试集: %d 样本\n', length(test_indices));
     fprintf('  微调集1: %d 样本\n', length(finetune1_indices));
-    fprintf('  微调集2: %d 样本\n\n', length(finetune2_indices));
+    fprintf('  微调集2: %d 样本\n', length(finetune2_indices));
+    fprintf('  微调集3: %d 样本\n\n', length(finetune3_indices));
     
     % 保存主数据集（训练、验证）- 主目录下的简化格式
     fprintf('保存主数据集...\n');
@@ -90,15 +97,15 @@ function split_and_save_datasets(allData, output_dir, snr_blink_levels, snr_eog_
     % 训练集
     pureEEG = allData.pureEEG(train_indices, :);
     contaminatedEEG = allData.contaminatedEEG(train_indices, :);
-    save(fullfile(output_dir, 'Train_Pure.mat'), 'pureEEG', '-v7.3');
-    save(fullfile(output_dir, 'Train_Contaminated.mat'), 'contaminatedEEG', '-v7.3');
+    save(fullfile(output_dir, 'Train_Pure.mat'), 'pureEEG');
+    save(fullfile(output_dir, 'Train_Contaminated.mat'), 'contaminatedEEG');
     fprintf('  已保存: Train_Pure.mat 和 Train_Contaminated.mat\n');
     
     % 验证集
     pureEEG = allData.pureEEG(val_indices, :);
     contaminatedEEG = allData.contaminatedEEG(val_indices, :);
-    save(fullfile(output_dir, 'Val_Pure.mat'), 'pureEEG', '-v7.3');
-    save(fullfile(output_dir, 'Val_Contaminated.mat'), 'contaminatedEEG', '-v7.3');
+    save(fullfile(output_dir, 'Val_Pure.mat'), 'pureEEG');
+    save(fullfile(output_dir, 'Val_Contaminated.mat'), 'contaminatedEEG');
     fprintf('  已保存: Val_Pure.mat 和 Val_Contaminated.mat\n\n');
     
     % 测试集 - 按等级分开保存
@@ -132,6 +139,10 @@ function split_and_save_datasets(allData, output_dir, snr_blink_levels, snr_eog_
     fprintf('保存微调集2 (20%%)...\n');
     save_finetune_dataset(allData, finetune2_indices, output_dir, '20percent');
     
+    % 保存微调集3 (30%) - 简化格式
+    fprintf('保存微调集3 (30%%)...\n');
+    save_finetune_dataset(allData, finetune3_indices, output_dir, '30percent');
+    
     fprintf('\n所有数据集已保存！\n');
 end
 
@@ -150,8 +161,8 @@ function save_dataset_details(allData, indices, save_dir, snr_blink_levels, snr_
     typeIndices = allData.typeIndices(indices);
     
     % 保存详细信息
-    save(fullfile(save_dir, 'EOG_Artifact.mat'), 'eogArtifact', '-v7.3');
-    save(fullfile(save_dir, 'Blink_Artifact.mat'), 'blinkArtifact', '-v7.3');
+    save(fullfile(save_dir, 'EOG_Artifact.mat'), 'eogArtifact');
+    save(fullfile(save_dir, 'Blink_Artifact.mat'), 'blinkArtifact');
     save(fullfile(save_dir, 'Level_Indices.mat'), 'levelIndices');
     save(fullfile(save_dir, 'Type_Indices.mat'), 'typeIndices');
     
@@ -206,8 +217,8 @@ function save_finetune_dataset(allData, indices, output_dir, percent_name)
     contaminatedEEG = allData.contaminatedEEG(indices, :);
     
     % 保存为简化的.mat文件（参考半模拟数据格式）
-    save(fullfile(output_dir, sprintf('Finetune_%s_Pure.mat', percent_name)), 'pureEEG', '-v7.3');
-    save(fullfile(output_dir, sprintf('Finetune_%s_Contaminated.mat', percent_name)), 'contaminatedEEG', '-v7.3');
+save(fullfile(output_dir, sprintf('Finetune_%s_Pure.mat', percent_name)), 'pureEEG');
+        save(fullfile(output_dir, sprintf('Finetune_%s_Contaminated.mat', percent_name)), 'contaminatedEEG');
     
     fprintf('  已保存: Finetune_%s_Pure.mat 和 Finetune_%s_Contaminated.mat (%d 样本)\n', ...
             percent_name, percent_name, length(indices));
@@ -245,8 +256,8 @@ function save_test_by_levels(allData, test_indices, output_dir, snr_blink_levels
         end
         
         % 保存文件
-        save(fullfile(output_dir, sprintf('Test_Pure_%s.mat', snr_str)), 'pureEEG', '-v7.3');
-        save(fullfile(output_dir, sprintf('Test_Contaminated_%s.mat', snr_str)), 'contaminatedEEG', '-v7.3');
+        save(fullfile(output_dir, sprintf('Test_Pure_%s.mat', snr_str)), 'pureEEG');
+        save(fullfile(output_dir, sprintf('Test_Contaminated_%s.mat', snr_str)), 'contaminatedEEG');
         
         fprintf('  已保存: Test_Pure_%s.mat 和 Test_Contaminated_%s.mat (%d 样本, 眨眼%.0fdB/眼动%.0fdB)\n', ...
                 snr_str, snr_str, length(level_test_indices), ...

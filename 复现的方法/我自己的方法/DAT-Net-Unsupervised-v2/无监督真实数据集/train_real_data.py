@@ -97,17 +97,24 @@ def load_and_split_data():
     indices = np.random.permutation(n_samples)
     
     # 计算划分点
-    train_size = int(n_samples * TRAIN_RATIO)
+    # 比例 7:1:2 (Train:Val:Test)
+    # Train: 0% -> 70%
+    # Val:   70% -> 80% (70+10)
+    # Test:  80% -> 100% (不在此处使用)
     
-    train_indices = indices[:train_size]
-    val_indices = indices[train_size:]
+    train_end = int(n_samples * TRAIN_RATIO)  # 0.7
+    val_end = int(n_samples * (TRAIN_RATIO + VAL_RATIO)) # 0.8
+    
+    train_indices = indices[:train_end]
+    val_indices = indices[train_end:val_end]
     
     train_x = data[train_indices]
     val_x = data[val_indices]
     
-    print(f'\n数据集划分完成:')
-    print(f'  训练集: {train_x.shape[0]} 样本 ({TRAIN_RATIO*100:.0f}%)')
-    print(f'  验证集: {val_x.shape[0]} 样本 ({VAL_RATIO*100:.0f}%)')
+    print(f'\n数据集划分完成 (Train:Val:Test = 7:1:2):')
+    print(f'  训练集: {train_x.shape[0]} 样本')
+    print(f'  验证集: {val_x.shape[0]} 样本')
+    print(f'  测试集: {n_samples - val_end} 样本 (保留)')
     
     return train_x, val_x
 
@@ -269,38 +276,55 @@ def main():
     else:
         scheduler = None
     
-    # 如果存在已保存的 best 模型，则加载并在验证集上评估其损失以继续训练
-    if os.path.isfile(MODEL_SAVE_PATH):
+    # 尝试加载checkpoint以继续训练
+    start_epoch = 1
+    best_val_loss = float('inf')
+    
+    checkpoint_path = os.path.join(CHECKPOINT_DIR, 'training_checkpoint.pth')
+    if os.path.isfile(checkpoint_path):
         try:
-            checkpoint = torch.load(MODEL_SAVE_PATH, map_location=device)
+            print(f'\n找到训练checkpoint: {checkpoint_path}')
+            checkpoint = torch.load(checkpoint_path, map_location=device)
             if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                # 新格式checkpoint：包含完整训练状态
                 model.load_state_dict(checkpoint['model_state_dict'])
+                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                if scheduler is not None and 'scheduler_state_dict' in checkpoint:
+                    scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                start_epoch = checkpoint['epoch'] + 1
+                best_val_loss = checkpoint['best_val_loss']
+                print(f'✓ 成功加载完整checkpoint')
+                print(f'  - 从epoch {start_epoch} 继续训练')
+                print(f'  - 最佳验证损失: {best_val_loss:.6f}')
             else:
+                # 旧格式：只有模型权重
                 model.load_state_dict(checkpoint)
-            print(f'已加载存在的最佳模型: {MODEL_SAVE_PATH}')
-            with torch.no_grad():
-                existing_val = validate(model, device, val_loader)
-            best_val_loss = existing_val['total']
-            print(f'已将 best_val_loss 设为 {best_val_loss:.6f}（来自已加载模型）')
+                print(f'✓ 加载了模型权重（旧格式）')
+                print(f'  - 从epoch 1 开始，但使用已训练的模型权重')
         except Exception as e:
-            print(f'加载已保存模型失败: {e}')
-            best_val_loss = float('inf')
+            print(f'⚠️ 加载checkpoint失败: {e}')
+            print('  从头开始训练')
+    elif os.path.isfile(MODEL_SAVE_PATH):
+        try:
+            print(f'\n找到最佳模型: {MODEL_SAVE_PATH}')
+            best_model = torch.load(MODEL_SAVE_PATH, map_location=device)
+            model.load_state_dict(best_model)
+            print(f'✓ 加载了最佳模型权重')
+            print(f'  - 从epoch 1 开始，但使用最佳模型权重')
+        except Exception as e:
+            print(f'⚠️ 加载最佳模型失败: {e}')
+            print('  从头开始训练')
     else:
-        best_val_loss = float('inf')
+        print(f'\n未找到checkpoint，从头开始训练')
     # 训练循环
     print('\n' + '='*80)
     print('开始训练')
     print('='*80)
     
-    # 保留之前加载模型时设置的 best_val_loss（若存在），否则初始化
-    try:
-        best_val_loss
-    except NameError:
-        best_val_loss = float('inf')
     patience_counter = 0
     start_time = time()
     
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(start_epoch, EPOCHS + 1):
         print(f'\nEpoch [{epoch}/{EPOCHS}]')
         print('='*80)
         
@@ -320,15 +344,29 @@ def main():
         print(f'  - Rec: {val_loss.get("rec", 0):.6f}  Con: {val_loss.get("con", 0):.6f}')
         print(f'  - N2V: {val_loss.get("n2v", 0):.6f}  Band: {val_loss.get("band", 0):.6f}')
         
-        # 保存最佳模型
+        # 保存最佳模型（每个epoch都保存训练checkpoint）
         if val_loss['total'] < best_val_loss:
             best_val_loss = val_loss['total']
             print(f'\n[*] 验证损失降低: {best_val_loss:.6f}')
             print(f'保存最佳模型到: {MODEL_SAVE_PATH}')
+            # 保存最佳模型（只保存模型权重，保持原格式）
             torch.save(model.state_dict(), MODEL_SAVE_PATH)
             patience_counter = 0
         else:
             patience_counter += 1
+        
+        # 每个epoch保存完整的训练checkpoint（用于断点续训）
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'best_val_loss': best_val_loss,
+        }
+        if scheduler is not None:
+            checkpoint['scheduler_state_dict'] = scheduler.state_dict()
+        
+        checkpoint_path = os.path.join(CHECKPOINT_DIR, 'training_checkpoint.pth')
+        torch.save(checkpoint, checkpoint_path)
         
         # 学习率调度
         if scheduler is not None:

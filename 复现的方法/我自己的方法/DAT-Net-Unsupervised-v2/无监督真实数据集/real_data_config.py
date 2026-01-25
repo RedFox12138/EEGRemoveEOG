@@ -15,22 +15,19 @@ WINDOW_SIZE = 1500  # 窗口大小 (样本数) - 与您的数据一致
 WINDOW_DURATION = WINDOW_SIZE / SAMPLING_RATE  # 6 秒
 
 # ========== 训练超参数 ==========
-BATCH_SIZE = 256
-EPOCHS = 1500
-LEARNING_RATE = 0.0001  # 调优后的学习率
-WEIGHT_DECAY = 1e-5
+BATCH_SIZE = 128
+EPOCHS = 500
 
-USE_LR_SCHEDULER = True
-WARMUP_EPOCHS = 20
-MIN_LR = 5e-6  # 最小学习率
+
 
 GRAD_CLIP = 1.0
 PATIENCE = 200
 
 # ========== 数据集划分比例 ==========
-# 由于没有验证集，我们从真实数据中随机抽取一部分作为验证
-TRAIN_RATIO = 0.9  # 90% 用于训练
+# 统一比例：训练集 70%, 验证集 10%, 测试集 20%
+TRAIN_RATIO = 0.7  # 70% 用于训练
 VAL_RATIO = 0.1    # 10% 用于验证
+TEST_RATIO = 0.2   # 20% 用于测试 (其余)
 RANDOM_SEED = 42   # 随机种子，确保可复现
 
 # ========== 损失函数权重 (针对眨眼伪影优化) ==========
@@ -40,26 +37,35 @@ RANDOM_SEED = 42   # 随机种子，确保可复现
 # 3. 增加伪影检测权重（GAMMA_ART_WEIGHT、BOOST_SCALE）
 # 4. 降低内容保持约束，允许更激进的去噪
 
-LAMBDA_REC = 100      # 重建损失（保持不变）
-LAMBDA_CON = 0.1      # 一致性损失（保持不变）
-LAMBDA_TEACHER = 0.1  # ↑ 提高 Teacher 损失，增强伪影分离（原 0.1804）
-LAMBDA_N2V = 0.1     # Noise2Void 损失（保持不变）
-LAMBDA_BAND = 0.4997       # ↑ 提高频带损失，增强频域约束（原 0.4997）
-LAMBDA_LOW = 0.0290        # ↑↑ 大幅提高低频损失，针对眨眼（原 0.0290）
-LAMBDA_DECOR = 0.2217       # ↑ 提高去相关损失，增强EEG/EOG分离（原 0.2217）
-LAMBDA_CONTENT = 0.1662    # ↓ 降低内容损失，允许更激进去噪（原 0.1662）
+# 以下为调优后的最优参数（全模拟数据集）
+LEARNING_RATE =0.002
+WEIGHT_DECAY = 0.00031075165040875654
 
-# ========== Artifact-aware 掩蔽参数 (增强伪影检测) ==========
-MASK_BASE = 0.0633         # ↑ 提高基础掩蔽率，更多关注伪影区域（原 0.0633）
-BOOST_SCALE = 0.1334      # ↑ 提高伪影区域增强系数（原 0.1334）
-GAMMA_ART_WEIGHT =  0.6339 # ↑ 提高伪影加权因子（原 0.6339）
+# ========== 损失函数权重 (v2调优后的最优参数) ==========
+LAMBDA_REC =35.223032835629375
+LAMBDA_CON = 0
+LAMBDA_TEACHER =87.45715260559828
+LAMBDA_N2V = 44.603344466197726
+LAMBDA_BAND =92.0152221815943
+LAMBDA_LOW = 0
+LAMBDA_DECOR =  0
+LAMBDA_CONTENT =0
 
-# ========== 内部算法参数 (优化眨眼检测) ==========
-ARTIFACT_WIN_SIZE = 100 # ↑ 增大窗口捕获更长的眨眼伪影（原 82）
-MASK_NEIGHBORHOOD = 5    # N2V掩蔽的邻域半径（保持不变）
-TEACHER_CUTOFF = 4.6188     # ↓ 降低高通截止，更好分离低频眨眼（原 4.6188）
-LOWPASS_CUTOFF = 2.7216    # ↑ 提高低通截止，增强低频伪影检测（原 2.7216）
-TEACHER_THRESHOLD = 0.7651 # ↓ 降低阈值，更宽松应用 teacher 损失（原 0.7651）
+# ========== Artifact-aware 掩蔽参数 ==========
+MASK_BASE = 1.6934384512498837
+BOOST_SCALE = 0.34744565396184746
+GAMMA_ART_WEIGHT = 4.798090110168316
+
+# ========== 内部算法参数 ==========
+ARTIFACT_WIN_SIZE = 72 # compute_artifact_prob的窗口大小
+MASK_NEIGHBORHOOD = 52# N2V掩蔽的邻域半径
+TEACHER_CUTOFF = 4.5  # teacher信号分离的高通截止频率
+LOWPASS_CUTOFF = 4 # 伪影检测的低频截止频率
+TEACHER_THRESHOLD = 0.6838728045795288  # teacher损失应用的阈值
+
+USE_LR_SCHEDULER = True
+WARMUP_EPOCHS = 20
+MIN_LR = LEARNING_RATE*0.01  # 最小学习率
 
 # ========== 模型保存路径 ==========
 # 使用相对路径避免中文路径问题

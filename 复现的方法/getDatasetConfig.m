@@ -31,7 +31,7 @@ function config = getDatasetConfig(varargin)
 
     % 默认使用全模拟数据集
     if nargin == 0
-        datasetName = 'semi_simulated';
+        datasetName = 'fully_simulated';
     else
         datasetName = varargin{1};
     end
@@ -59,10 +59,10 @@ function config = getDatasetConfig(varargin)
             config.fs = 250;  % Hz  
             config.windowSize = 1500;  % 样本数 (250Hz * 6s)
             config.dataDir = fullfile(projectRoot, '生成全模拟数据', '已经生成好的数据', 'Multi_SNR_Merged');
-            config.description = '完全模拟生成的数据集,7个SNR级别,格式[n_samples, 1500]';
+            config.description = '完全模拟生成的数据集,8个SNR级别,格式[n_samples, 1500]';
             
-            % 多SNR测试集配置
-            config.testSnrLevels = [0, -2, -4, -8, -12, -14, -16];
+            % 多SNR测试集配置（从高到低）
+            config.testSnrLevels = [4, 0, -6, -10, -14, -18, -20, -22];
             config.hasMultiSnrTest = true;
             
         otherwise
@@ -75,7 +75,15 @@ function config = getDatasetConfig(varargin)
     config.trainPure = 'Train_Pure.mat';
     config.valContaminated = 'Val_Contaminated.mat';
     config.valPure = 'Val_Pure.mat';
-    config.dataKey = 'data';
+    
+    % 数据键名（根据数据集不同而不同）
+    if strcmp(datasetName, 'semi_simulated')
+        config.dataKey = 'data';  % 半模拟数据集使用 'data'
+        config.pureKey = 'data';
+    elseif strcmp(datasetName, 'fully_simulated')
+        config.dataKey = 'contaminatedEEG';  % 全模拟数据集使用 'contaminatedEEG'
+        config.pureKey = 'pureEEG';          % 纯净信号使用 'pureEEG'
+    end
     
     % 生成完整路径
     config.trainContaminatedPath = fullfile(config.dataDir, config.trainContaminated);

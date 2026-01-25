@@ -13,12 +13,13 @@ SAMPLING_RATE = 250.0
 WINDOW_SIZE = 1500
 
 # ========== 数据集划分比例 ==========
-TRAIN_RATIO = 0.9  # 90% 用于训练
+TRAIN_RATIO = 0.7  # 70% 用于训练
 VAL_RATIO = 0.1    # 10% 用于验证
+TEST_RATIO = 0.2   # 20% 用于测试
 RANDOM_SEED = 42
 
 # ========== 训练超参数 ==========
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 EPOCHS = 500
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 0.0
@@ -32,7 +33,7 @@ PATIENCE = 200
 
 # ========== Self2Self参数 ==========
 DROPOUT_RATE = 0.3      # Dropout概率
-N_PREDICTIONS = 100     # 推理时的预测次数
+N_PREDICTIONS = 1       # 推理时的预测次数 (1=单次推理, >1=Dropout平均)
 
 # ========== 模型参数 ==========
 BASE_CHANNELS = 48

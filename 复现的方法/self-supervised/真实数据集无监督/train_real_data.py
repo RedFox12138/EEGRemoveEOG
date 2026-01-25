@@ -81,17 +81,21 @@ def load_and_split_data():
     np.random.seed(RANDOM_SEED)
     indices = np.random.permutation(n_samples)
     
-    train_size = int(n_samples * TRAIN_RATIO)
+    # 计算划分点
+    # 比例 7:1:2 (Train:Val:Test)
+    train_end = int(n_samples * TRAIN_RATIO)  # 0.7
+    val_end = int(n_samples * (TRAIN_RATIO + VAL_RATIO)) # 0.8
     
-    train_indices = indices[:train_size]
-    val_indices = indices[train_size:]
+    train_indices = indices[:train_end]
+    val_indices = indices[train_end:val_end]
     
     train_x = data[train_indices]
     val_x = data[val_indices]
     
-    print(f'\n数据集划分完成:')
-    print(f'  训练集: {train_x.shape[0]} 样本 ({TRAIN_RATIO*100:.0f}%)')
-    print(f'  验证集: {val_x.shape[0]} 样本 ({VAL_RATIO*100:.0f}%)')
+    print(f'\n数据集划分完成 (Train:Val:Test = 7:1:2):')
+    print(f'  训练集: {train_x.shape[0]} 样本')
+    print(f'  验证集: {val_x.shape[0]} 样本')
+    print(f'  测试集: {n_samples - val_end} 样本 (保留)')
     
     return train_x, val_x
 

@@ -17,7 +17,7 @@ from cbamdropout import EEGNetMorletWindowCBAMDropout
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from data_config import *
 
-BATCH_SIZE = 200
+BATCH_SIZE = 64
 LEARNING_RATE = 1e-3  # 原始代码默认学习率 1e-3
 NUM_EPOCHS = 1000
 MIN_LR = 5e-5  # OneCycleLR的最小学习率
@@ -55,8 +55,8 @@ def load_data(data_dir):
     train_input = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
     verify_input = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
 
-    train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
-    verify_output = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
+    train_output = scipy.io.loadmat(TRAIN_PURE_PATH)[PURE_KEY]
+    verify_output = scipy.io.loadmat(VAL_PURE_PATH)[PURE_KEY]
 
     train_set = EEGDatasetASNetStyle(train_input, train_output, is_train=True)
     val_set = EEGDatasetASNetStyle(verify_input, verify_output, is_train=False)
@@ -67,7 +67,7 @@ def load_data(data_dir):
     # 多SNR配置下不加载测试集
     if TEST_CONTAMINATED_PATH is not None:
         test_input = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
-        test_output = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+        test_output = scipy.io.loadmat(TEST_PURE_PATH)[PURE_KEY]
         test_set = EEGDatasetASNetStyle(test_input, test_output, is_train=False)
         test_loader = Data.DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
     else:
@@ -174,6 +174,20 @@ def main():
     best_val_loss = float('inf')  # 使用验证损失作为最佳模型选择标准(越小越好)
     epochs_no_improve = 0  # Early stopping计数器
     os.makedirs('results', exist_ok=True)
+    
+    # 自动加载已有的best模型继续训练
+    best_model_path = 'MicroWaveNet_best.pt'
+    if os.path.exists(best_model_path):
+        print(f"\n发现已有模型: {best_model_path}")
+        try:
+            model.load_state_dict(torch.load(best_model_path, map_location=device))
+            print(f"✓ 成功加载模型，将从已有最佳模型继续训练")
+        except Exception as e:
+            print(f"⚠ 加载模型失败: {e}")
+            print("将从头开始训练")
+    else:
+        print(f"\n未找到已有模型: {best_model_path}")
+        print("将从头开始训练")
     
     print("="*60)
     print(f"开始训练 MicroWaveNet")

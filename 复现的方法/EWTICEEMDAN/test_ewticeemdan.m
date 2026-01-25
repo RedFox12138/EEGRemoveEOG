@@ -98,7 +98,7 @@ for snr_idx = 1:length(snr_levels)
     data_clean = load(test_pure_path);
     
     test_contaminated = data_contaminated.(cfg.dataKey);
-    test_clean = data_clean.(cfg.dataKey);
+    test_clean = data_clean.(cfg.pureKey);
     
     num_test = size(test_contaminated, 1);
     fprintf('测试集样本数: %d\n', num_test);

@@ -49,7 +49,7 @@ except Exception:
 # BATCH_SIZE, SAMPLING_RATE 等基本配置从 config.py 导入
 
 # ========== 微调阶段：分层学习率 ==========
-STAGE2_EPOCHS = 2000
+STAGE2_EPOCHS = 1000
 # STAGE2_LR_ENCODER = 1e-4     # Encoder慢速微调
 # STAGE2_LR_BOTTLENECK = 3e-3  # Bottleneck中速
 # STAGE2_LR_DECODER = 5e-3     # Decoder较快
@@ -57,14 +57,14 @@ STAGE2_EPOCHS = 2000
 # USE_WARMUP = False           # 不使用warmup
 
 WARMUP_EPOCHS = 10           # warmup轮数
-PATIENCE = 250      # 早停耐心值
+PATIENCE = 1000      # 早停耐心值
 
-STAGE2_LR_ENCODER = 2.789130059268564e-05
-STAGE2_LR_BOTTLENECK = 0.00031203977078468576
-STAGE2_LR_DECODER = 5.9018783792285317e-05
-STAGE2_LR_OUTPUT =0.0007823540619457591
-WEIGHT_DECAY = 4.743593769950087e-06
-GRAD_CLIP = 0.9396635010974262
+STAGE2_LR_ENCODER = 0.0005590547219468103
+STAGE2_LR_BOTTLENECK =  5.054618790576543e-04
+STAGE2_LR_DECODER = 0.0001178199097716924
+STAGE2_LR_OUTPUT =0.00010610643578857668
+WEIGHT_DECAY = 1.7038831253031843e-04
+GRAD_CLIP = 1.933899743786938
 USE_LR_DECAY = True
 
 
@@ -78,6 +78,20 @@ class SupervisedDataset(Dataset):
         return len(self.noisy)
 
     def __getitem__(self, idx):
+        noisy = self.noisy[idx]
+        clean = self.clean[idx]
+        
+        # Max-Abs归一化（与原始版本一致）
+        norm = np.max(np.abs(noisy))
+        if norm == 0:
+            norm = 1.0
+        
+        noisy_norm = (noisy / norm).astype('float32')
+        clean_norm = (clean / norm).astype('float32')
+        
+        return torch.tensor(noisy_norm), torch.tensor(clean_norm), norm
+
+    def __getitem___old(self, idx):
         noisy = self.noisy[idx]
         clean = self.clean[idx]
         
@@ -101,14 +115,14 @@ def get_data():
         # 使用预先生成的微调数据集（均匀采样自5种SNR）
         print(f"✓ 检测到预生成的微调数据集")
         train_x = scipy.io.loadmat(FINETUNE_CONTAMINATED_PATH)[DATA_KEY]
-        train_y = scipy.io.loadmat(FINETUNE_PURE_PATH)[DATA_KEY]
+        train_y = scipy.io.loadmat(FINETUNE_PURE_PATH)[PURE_KEY]
         print(f"✓ 加载微调数据: {train_x.shape}")
         print(f"  来源: 从7种SNR中均匀采样{int(FINETUNE_RATIO*100)}%训练数据")
     else:
         # 回退到旧逻辑：从完整训练集前面取比例数据（全模拟数据集）
         print(f"✓ 未找到预生成的微调数据集，使用传统方式（从完整训练集前面取数据）")
         full_train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
-        full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
+        full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[PURE_KEY]
         
         # 取前N%数据
         num_samples = int(len(full_train_x) * FINETUNE_RATIO)
@@ -119,7 +133,7 @@ def get_data():
     
     # 验证集
     val_x = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
-    val_y = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
+    val_y = scipy.io.loadmat(VAL_PURE_PATH)[PURE_KEY]  # 修复：使用PURE_KEY而不是DATA_KEY
     print(f"✓ 加载验证数据: {val_x.shape}")
     
     return train_x, train_y, val_x, val_y
@@ -129,7 +143,7 @@ def get_test_data():
     """加载测试数据（仅在单一测试集模式下使用，多SNR模式下跳过）"""
     if TEST_CONTAMINATED_PATH is not None:
         test_x = scipy.io.loadmat(TEST_CONTAMINATED_PATH)[DATA_KEY]
-        test_y = scipy.io.loadmat(TEST_PURE_PATH)[DATA_KEY]
+        test_y = scipy.io.loadmat(TEST_PURE_PATH)[PURE_KEY]  # 修复：使用PURE_KEY
         return test_x, test_y
     else:
         # 多SNR模式，微调过程中不使用测试集
@@ -264,11 +278,11 @@ def train_epoch(model, device, loader, optimizer, epoch=1):
     num_batches = 0
     
     for batch_idx, (noisy, clean, norm) in enumerate(loader):
-        noisy = noisy.float().unsqueeze(1).to(device)  # (B, 1, L)
-        clean = clean.float().unsqueeze(1).to(device)  # (B, 1, L)
+        noisy = noisy.float().unsqueeze(1).to(device)
+        clean = clean.float().unsqueeze(1).to(device)
         norm = norm.float().to(device).view(-1, 1, 1)
         
-        # 恢复到原始尺度（与无监督训练保持一致）
+        # 恢复原始幅度: max-abs反归一化
         noisy_scaled = noisy * norm
         clean_scaled = clean * norm
         
@@ -278,8 +292,7 @@ def train_epoch(model, device, loader, optimizer, epoch=1):
             print(f"  noisy (归一化): min={noisy.min():.4f}, max={noisy.max():.4f}")
             print(f"  noisy_scaled (原始): min={noisy_scaled.min():.4f}, max={noisy_scaled.max():.4f}")
             print(f"  clean (归一化): min={clean.min():.4f}, max={clean.max():.4f}")
-            print(f"  clean_scaled (原始): min={clean_scaled.min():.4f}, max={clean_scaled.max():.4f}")
-            print(f"  norm: min={norm.min():.4f}, max={norm.max():.4f}\n")
+            print(f"  clean_scaled (原始): min={clean_scaled.min():.4f}, max={clean_scaled.max():.4f}\n")
         
         optimizer.zero_grad()
         
@@ -314,12 +327,12 @@ def validate(model, device, loader):
     with torch.no_grad():
         for noisy, clean, norm in loader:
             noisy = noisy.float().unsqueeze(1).to(device)
-            clean_norm = clean.float().unsqueeze(1).to(device)
-            norm_t = norm.float().to(device).view(-1, 1, 1)
+            clean = clean.float().unsqueeze(1).to(device)
+            norm = norm.float().to(device).view(-1, 1, 1)
             
-            # 恢复到原始尺度（与训练保持一致）
-            noisy_scaled = noisy * norm_t
-            clean_scaled = clean_norm * norm_t
+            # 恢复原始幅度: max-abs反归一化
+            noisy_scaled = noisy * norm
+            clean_scaled = clean * norm
             
             # 前向传播（模型返回 eeg_clean 和 eog_artifact）
             eeg_clean, _ = model(noisy_scaled)
@@ -445,15 +458,21 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
-    # 创建模型并加载预训练权重
+    # 创建模型
     model = DATNet(in_channels=1, base_channels=32).to(device)
 
-    pretrained_path = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best_rrmse.pth'
-    if os.path.exists(pretrained_path):
+    # 优先加载上次的最佳微调模型，否则加载预训练模型
+    best_finetune_path = 'DAT-Net-Unsupervised-v2_finetuned_best_30%鏁版嵁.pth'
+    pretrained_path = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best_rrmse_1.pth'
+
+    if os.path.exists(best_finetune_path):
+        load_checkpoint_to_model(model, best_finetune_path, device, strict=False)
+        print(f'✓ 从上次最佳微调模型继续: {best_finetune_path}')
+    elif os.path.exists(pretrained_path):
         load_checkpoint_to_model(model, pretrained_path, device, strict=False)
         print(f'✓ 加载预训练模型: {pretrained_path}')
     else:
-        print(f'⚠️  未找到预训练模型: {pretrained_path}')
+        print(f'⚠️  未找到最佳微调模型和预训练模型')
         print('从头开始微调...')
 
     total_params = model.count_parameters()
@@ -487,14 +506,14 @@ def main():
         schedulers = None
 
     best_val_loss = float('inf')
-    best_val_cc = -1.0
+    best_val_rrmse = float('inf')  # RRMSE越小越好
     no_improve_count = 0
     start_time = time()
 
     for epoch in range(1, STAGE2_EPOCHS + 1):
         train_loss = train_epoch(model, device, train_loader, optimizer, epoch)
         val_loss, val_metrics = validate(model, device, val_loader)
-        val_cc = val_metrics.get('CC', 0)
+        val_rrmse = val_metrics.get('RRMSE', float('inf'))  # 获取RRMSE指标
 
         # 如果使用学习率衰减，则更新学习率
         if schedulers is not None:
@@ -503,21 +522,21 @@ def main():
 
         # 打印所有参数组的学习率
         lr_str = ' | '.join([f"{group['name']}: {group['lr']:.2e}" for group in optimizer.param_groups])
-        print(f'Epoch {epoch:3d}/{STAGE2_EPOCHS} | Train: {train_loss:.6f} | Val: {val_loss:.6f} | CC: {val_cc:.4f} | LR: {lr_str}')
+        print(f'Epoch {epoch:3d}/{STAGE2_EPOCHS} | Train: {train_loss:.6f} | Val: {val_loss:.6f} | RRMSE: {val_rrmse:.4f} | LR: {lr_str}')
 
-        # 保存最佳模型（基于验证损失）
-        if val_loss < best_val_loss:
+        # 保存最佳模型（基于RRMSE）
+        if val_rrmse < best_val_rrmse:
+            best_val_rrmse = val_rrmse
             best_val_loss = val_loss
-            best_val_cc = val_cc
             torch.save(model.state_dict(), 'DAT-Net-Unsupervised-v2_finetuned_best_30%数据.pth')
-            print(f'  ✅ 保存最佳模型 (Val Loss: {val_loss:.6f}, CC: {val_cc:.4f})')
+            print(f'  ✅ 保存最佳模型 (RRMSE: {val_rrmse:.4f}, Val Loss: {val_loss:.6f})')
             no_improve_count = 0
         else:
             no_improve_count += 1
 
         # 早停
         if no_improve_count >= PATIENCE:
-            print(f'\n验证损失连续{no_improve_count}轮无改善，提前停止训练')
+            print(f'\nRRMSE连续{no_improve_count}轮无改善，提前停止训练')
             break
 
     total_elapsed = time() - start_time
@@ -529,8 +548,8 @@ def main():
     print('微调完成!')
     print('='*70)
     print(f'总用时: {total_elapsed/60:.2f}分钟')
-    print(f'最佳验证损失: {best_val_loss:.6f}')
-    print(f'最佳验证CC: {best_val_cc:.4f}')
+    print(f'最佳验证RRMSE: {best_val_rrmse:.4f}')
+    print(f'对应验证损失: {best_val_loss:.6f}')
 
     print(f'\n保存的模型文件:')
     print(f'  - DAT-Net-Unsupervised-v2_finetuned_best.pth (最佳模型)')

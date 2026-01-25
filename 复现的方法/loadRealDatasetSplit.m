@@ -9,7 +9,7 @@ function [test_data, train_data] = loadRealDatasetSplit(data_path, data_key, tra
 % 输入参数:
 %   data_path    - 数据文件路径 (默认: 真实数据集路径)
 %   data_key     - .mat文件中的数据键名 (默认: 'eog_dataset')
-%   train_ratio  - 训练集比例 (默认: 0.9, 即90%训练，10%测试)
+%   train_ratio  - 训练集比例 (默认: 0.8, 即80%训练，20%测试)
 %   random_seed  - 随机种子 (默认: 42, 确保可复现)
 %
 % 输出参数:
@@ -36,7 +36,7 @@ if nargin < 2 || isempty(data_key)
 end
 
 if nargin < 3 || isempty(train_ratio)
-    train_ratio = 0.9;  % 90% 训练，10% 测试
+    train_ratio = 0.8;  % 90% 训练，10% 测试
 end
 
 if nargin < 4 || isempty(random_seed)

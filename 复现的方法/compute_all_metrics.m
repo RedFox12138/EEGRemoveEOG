@@ -19,7 +19,7 @@ function compute_all_metrics()
     fprintf('================================================================================\n');
     
     % ===================== 配置路径 =====================
-    % 获取数据集配置（使用半模拟数据集）
+    % 获取数据集配置（使用全模拟数据集）
     config = getDatasetConfig('semi_simulated');
     
     % 结果目录
@@ -57,8 +57,10 @@ function compute_all_metrics()
             end
 
             data_struct = load(test_pure_path);
-            true_signals = data_struct.(config.dataKey);
-            fprintf('✓ 已加载基准测试集: %s\n', mat2str(size(true_signals)));
+            true_signals = data_struct.(config.pureKey);  % 使用pureKey加载纯净数据
+            fprintf('✓ 已加载基准测试集: %s | 键名: "%s" | 数据范围: [%.3f, %.3f]\n', ...
+                    mat2str(size(true_signals)), config.pureKey, ...
+                    min(true_signals(:)), max(true_signals(:)));
 
             % 处理该SNR级别的所有方法，并获取结果
             results_snr = process_snr_level(config, current_snr, true_signals, results_dir);
@@ -81,6 +83,9 @@ function compute_all_metrics()
         fprintf('%s\n', center_text('全部SNR级别处理完成！', 80));
         fprintf('================================================================================\n');
 
+        % 计算并显示跨SNR的平均指标对比表
+        display_average_metrics_table(results_all_snr, snr_levels, results_dir);
+
         % 生成跨SNR的两张汇总图：指标随SNR变化折线图 & 平均时间柱状图
         plot_snr_comparison(results_all_snr, snr_levels, results_dir);
         plot_avg_time(results_all_snr, results_dir);
@@ -99,8 +104,10 @@ function compute_all_metrics()
     end
     
     data_struct = load(test_pure_path);
-    true_signals = data_struct.(config.dataKey);
-    fprintf('✓ 已加载基准测试集 (Test_Pure.mat): %s\n', mat2str(size(true_signals)));
+    true_signals = data_struct.(config.pureKey);  % 使用pureKey加载纯净数据
+    fprintf('✓ 已加载基准测试集: %s | 键名: "%s" | 数据范围: [%.3f, %.3f] | 采样率: %d Hz\n', ...
+            mat2str(size(true_signals)), config.pureKey, ...
+            min(true_signals(:)), max(true_signals(:)), config.fs);
     
     % 2. 扫描文件
     fprintf('\n[扫描目录] %s\n', results_dir);
@@ -330,13 +337,20 @@ function [predictions, time_per_sample] = load_prediction_file(file_path, file_n
         return;
     end
     
-    % 查找数据变量
-    if isfield(data, 'predictions')
+    % 查找数据变量（优先使用denoised_data，这是模型输出的标准键名）
+    used_key = '';
+    if isfield(data, 'denoised_data')
+        predictions = data.denoised_data;
+        used_key = 'denoised_data';
+    elseif isfield(data, 'predictions')
         predictions = data.predictions;
+        used_key = 'predictions';
     elseif isfield(data, 'data')
         predictions = data.data;
+        used_key = 'data';
     elseif isfield(data, 'clean_data')
         predictions = data.clean_data;
+        used_key = 'clean_data';
     else
         % 尝试找到最大的非meta变量
         fields = fieldnames(data);
@@ -347,12 +361,18 @@ function [predictions, time_per_sample] = load_prediction_file(file_path, file_n
                 if numel(data.(field_name)) > max_size
                     predictions = data.(field_name);
                     max_size = numel(data.(field_name));
+                    used_key = field_name;
                 end
             end
         end
         if ~isempty(predictions)
-            fprintf('  ⚠ 警告: 未找到标准变量名，已自动选择最大变量作为数据。\n');
+            fprintf('  ⚠ 警告: 未找到标准变量名，已自动选择最大变量: %s\n', used_key);
         end
+    end
+    
+    if ~isempty(predictions) && ~isempty(used_key)
+        fprintf('    使用键名: "%s" | 数据范围: [%.3f, %.3f]\n', ...
+                used_key, min(predictions(:)), max(predictions(:)));
     end
     
     if isempty(predictions)
@@ -955,4 +975,262 @@ function key = snr_field(snr)
     s = strrep(s, '-', 'm');
     s = strrep(s, ' ', '');
     key = sprintf('snr_%s', s);
+end
+
+function display_average_metrics_table(results_all_snr, snr_levels, output_dir)
+% 计算并显示所有SNR级别的平均指标对比表
+    methods = fieldnames(results_all_snr);
+    n_methods = length(methods);
+    n_snr = length(snr_levels);
+    
+    % 初始化平均指标存储
+    avg_metrics = struct();
+    
+    for i = 1:n_methods
+        method = methods{i};
+        if isfield(results_all_snr.(method), 'display_name')
+            display_name = results_all_snr.(method).display_name;
+        else
+            display_name = method;
+        end
+        
+        % 收集所有SNR级别的指标
+        rrmse_list = [];
+        cc_list = [];
+        rrmse_psd_list = [];
+        mi_list = [];
+        time_list = [];
+        
+        snr_keys = fieldnames(results_all_snr.(method).snr_metrics);
+        for k = 1:length(snr_keys)
+            entry = results_all_snr.(method).snr_metrics.(snr_keys{k});
+            if isfield(entry, 'RRMSE_mean')
+                rrmse_list(end+1) = entry.RRMSE_mean;
+            end
+            if isfield(entry, 'CC_mean')
+                cc_list(end+1) = entry.CC_mean;
+            end
+            if isfield(entry, 'RRMSE_PSD_mean')
+                rrmse_psd_list(end+1) = entry.RRMSE_PSD_mean;
+            end
+            if isfield(entry, 'MI_mean')
+                mi_list(end+1) = entry.MI_mean;
+            end
+            if isfield(entry, 'time_per_sample')
+                time_list(end+1) = entry.time_per_sample;
+            end
+        end
+        
+        % 计算平均值和标准差
+        avg_metrics.(method).display_name = display_name;
+        avg_metrics.(method).RRMSE_mean = mean(rrmse_list);
+        avg_metrics.(method).RRMSE_std = std(rrmse_list);
+        avg_metrics.(method).CC_mean = mean(cc_list);
+        avg_metrics.(method).CC_std = std(cc_list);
+        avg_metrics.(method).RRMSE_PSD_mean = mean(rrmse_psd_list);
+        avg_metrics.(method).RRMSE_PSD_std = std(rrmse_psd_list);
+        avg_metrics.(method).MI_mean = mean(mi_list);
+        avg_metrics.(method).MI_std = std(mi_list);
+        avg_metrics.(method).time_per_sample = mean(time_list);
+    end
+    
+    % 按RRMSE排序
+    [~, sort_idx] = sort(arrayfun(@(i) avg_metrics.(methods{i}).RRMSE_mean, 1:n_methods));
+    sorted_methods = methods(sort_idx);
+    
+    % 打印平均指标表格
+    fprintf('\n================================================================================\n');
+    fprintf('%s\n', center_text('跨SNR平均性能对比表', 80));
+    fprintf('================================================================================\n');
+    fprintf('%-25s %-18s %-18s %-18s %-18s %-12s\n', ...
+            'Method', 'RRMSE', 'CC', 'RRMSE_PSD', 'MI', 'Time(ms)');
+    fprintf('--------------------------------------------------------------------------------\n');
+    
+    for i = 1:n_methods
+        method = sorted_methods{i};
+        m = avg_metrics.(method);
+        fprintf('%-25s %.3f ± %.3f     %.3f ± %.3f     %.3f ± %.3f     %.3f ± %.3f     %.2f\n', ...
+                m.display_name, ...
+                m.RRMSE_mean, m.RRMSE_std, ...
+                m.CC_mean, m.CC_std, ...
+                m.RRMSE_PSD_mean, m.RRMSE_PSD_std, ...
+                m.MI_mean, m.MI_std, ...
+                m.time_per_sample * 1000);
+    end
+    fprintf('================================================================================\n');
+    
+    % 保存为CSV
+    output_csv = fullfile(output_dir, 'average_metrics_across_snr.csv');
+    fid = fopen(output_csv, 'w');
+    fprintf(fid, 'Method,RRMSE,CC,RRMSE_PSD,MI,Time_ms\n');
+    for i = 1:n_methods
+        method = sorted_methods{i};
+        m = avg_metrics.(method);
+        fprintf(fid, '%s,"%.3f ± %.3f","%.3f ± %.3f","%.3f ± %.3f","%.3f ± %.3f",%.3f\n', ...
+                m.display_name, ...
+                m.RRMSE_mean, m.RRMSE_std, ...
+                m.CC_mean, m.CC_std, ...
+                m.RRMSE_PSD_mean, m.RRMSE_PSD_std, ...
+                m.MI_mean, m.MI_std, ...
+                m.time_per_sample * 1000);
+    end
+    fclose(fid);
+    fprintf('\n✓ 平均指标表已保存到: %s\n', output_csv);
+    
+    % ===================== 生成每个指标的跨SNR表格（每个指标一张sheet） =====================
+    try
+        snr_sorted = sort(snr_levels, 'descend');
+        metrics_list = {'RRMSE', 'CC', 'RRMSE_PSD', 'MI'};
+        excel_path = fullfile(output_dir, 'metrics_across_snr.xlsx');
+
+        for mi = 1:length(metrics_list)
+            metric_name = metrics_list{mi};
+
+            % 表头：Method, SNR列..., 平均, 单样本时长
+            header = cell(1, 2 + length(snr_sorted));
+            header{1} = 'Method';
+            for s = 1:length(snr_sorted)
+                header{1 + s} = num2str(snr_sorted(s));
+            end
+            header{end} = '平均';
+            header{end+1} = '单样本时长';
+
+            % 填充内容
+            n = length(methods);
+            out_cells = cell(n+1, length(header));
+            out_cells(1,1:length(header)) = header;
+
+            for i = 1:n
+                method = methods{i};
+                display_name = avg_metrics.(method).display_name;
+                out_cells{i+1, 1} = display_name;
+
+                for s = 1:length(snr_sorted)
+                    snr = snr_sorted(s);
+                    snr_key = snr_field(snr);
+                    if isfield(results_all_snr.(method).snr_metrics, snr_key)
+                        entry = results_all_snr.(method).snr_metrics.(snr_key);
+                        mean_field = sprintf('%s_mean', metric_name);
+                        std_field = sprintf('%s_std', metric_name);
+                        if isfield(entry, mean_field) && isfield(entry, std_field)
+                            out_cells{i+1, 1+s} = sprintf('%.3f ± %.3f', entry.(mean_field), entry.(std_field));
+                        else
+                            out_cells{i+1, 1+s} = '';
+                        end
+                    else
+                        out_cells{i+1, 1+s} = '';
+                    end
+                end
+
+                % 平均列
+                avg_mean = avg_metrics.(method).(sprintf('%s_mean', metric_name));
+                avg_std = avg_metrics.(method).(sprintf('%s_std', metric_name));
+                out_cells{i+1, end-1} = sprintf('%.3f ± %.3f', avg_mean, avg_std);
+
+                % 单样本时长（ms）
+                out_cells{i+1, end} = sprintf('%.3f', avg_metrics.(method).time_per_sample * 1000);
+            end
+            % 按均值排序：对RRMSE/RRMSE_PSD使用升序（越小越好），对CC/MI使用降序（越大越好）
+            try
+                avg_vals = zeros(n,1);
+                for ii = 1:n
+                    mname = methods{ii};
+                    avg_vals(ii) = avg_metrics.(mname).(sprintf('%s_mean', metric_name));
+                end
+
+                if any(strcmp(metric_name, {'RRMSE','RRMSE_PSD'}))
+                    [~, sort_idx] = sort(avg_vals, 'ascend');
+                else
+                    [~, sort_idx] = sort(avg_vals, 'descend');
+                end
+
+                % 重排 out_cells 的数据行（保留表头）
+                out_sorted = cell(size(out_cells));
+                out_sorted(1,:) = out_cells(1,:);
+                for r = 1:n
+                    out_sorted(r+1, :) = out_cells(sort_idx(r)+1, :);
+                end
+                out_cells = out_sorted;
+            catch ME
+                warning('排序每指标表格失败，继续不排序写表：%s', ME.message);
+            end
+
+            % 将表写入 Excel 的 sheet（UTF-8 兼容）
+            try
+                writecell(out_cells, excel_path, 'Sheet', metric_name);
+            catch
+                % 如果 writecell 不可用，退回到 xlswrite
+                try
+                    xlswrite(excel_path, out_cells, metric_name);
+                catch
+                    warning('无法将 %s 写入 Excel: %s', metric_name, excel_path);
+                end
+            end
+        end
+
+        % 另外生成一个 Time 表，列出每个SNR的 time 与平均
+        header_time = cell(1, 2 + length(snr_sorted));
+        header_time{1} = 'Method';
+        for s = 1:length(snr_sorted)
+            header_time{1 + s} = num2str(snr_sorted(s));
+        end
+        header_time{end} = '平均';
+        header_time{end+1} = '单样本时长';
+
+        out_time = cell(n+1, length(header_time));
+        out_time(1,1:length(header_time)) = header_time;
+        for i = 1:n
+            method = methods{i};
+            out_time{i+1,1} = avg_metrics.(method).display_name;
+            for s = 1:length(snr_sorted)
+                snr = snr_sorted(s);
+                snr_key = snr_field(snr);
+                if isfield(results_all_snr.(method).snr_metrics, snr_key)
+                    entry = results_all_snr.(method).snr_metrics.(snr_key);
+                    if isfield(entry, 'time_per_sample')
+                        out_time{i+1, 1+s} = sprintf('%.3f', entry.time_per_sample * 1000);
+                    else
+                        out_time{i+1, 1+s} = '';
+                    end
+                else
+                    out_time{i+1, 1+s} = '';
+                end
+            end
+            out_time{i+1, end-1} = sprintf('%.3f', avg_metrics.(method).time_per_sample * 1000);
+            out_time{i+1, end} = sprintf('%.3f', avg_metrics.(method).time_per_sample * 1000);
+        end
+
+        % 对 Time 表按平均时间升序排序（越小越好）
+        try
+            avg_times = zeros(n,1);
+            for ii = 1:n
+                mname = methods{ii};
+                avg_times(ii) = avg_metrics.(mname).time_per_sample * 1000;
+            end
+            [~, time_idx] = sort(avg_times, 'ascend');
+
+            out_time_sorted = cell(size(out_time));
+            out_time_sorted(1,:) = out_time(1,:);
+            for r = 1:n
+                out_time_sorted(r+1, :) = out_time(time_idx(r)+1, :);
+            end
+            out_time = out_time_sorted;
+        catch ME
+            warning('排序 Time 表失败，将不排序写表：%s', ME.message);
+        end
+
+        try
+            writecell(out_time, excel_path, 'Sheet', 'Time_ms');
+        catch
+            try
+                xlswrite(excel_path, out_time, 'Time_ms');
+            catch
+                warning('无法将 Time 写入 Excel: %s', excel_path);
+            end
+        end
+
+        fprintf('\n✓ 已生成每个指标的跨SNR表格（Excel）：%s\n', excel_path);
+    catch ME
+        warning('生成跨SNR每指标表格时出错: %s', ME.message);
+    end
 end

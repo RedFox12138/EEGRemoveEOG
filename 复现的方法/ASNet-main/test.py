@@ -20,6 +20,11 @@ from config import *
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dataset_config import get_dataset_config
 
+# ========== 数据集选择 ==========
+# 只需修改此处即可切换数据集：'semi_simulated' 或 'fully_simulated'
+DATASET_NAME = 'fully_simulated'
+# ================================
+
 BATCH_SIZE = 50
 
 class EEGDataset(Dataset):
@@ -51,7 +56,7 @@ class EEGDataset(Dataset):
 
 def load_test_data_by_snr(snr_level):
     """加载指定SNR级别的测试数据"""
-    config = get_dataset_config('semi_simulated')
+    config = get_dataset_config(DATASET_NAME)
     
     if 'test_snr_paths' in config:
         # 多SNR测试集
@@ -63,7 +68,7 @@ def load_test_data_by_snr(snr_level):
         pure_path = config['test_pure_path']
     
     test_input = scipy.io.loadmat(contaminated_path)[config['data_key']]
-    test_output = scipy.io.loadmat(pure_path)[config['data_key']]
+    test_output = scipy.io.loadmat(pure_path)[config.get('pure_key', config['data_key'])]
     
     print(f"SNR={snr_level}dB 测试集形状: {test_input.shape}")
     
@@ -143,7 +148,7 @@ def main():
     model.to(device)
     
     # 获取配置
-    config = get_dataset_config('semi_simulated')
+    config = get_dataset_config(DATASET_NAME)
     output_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
     os.makedirs(output_dir, exist_ok=True)
     
@@ -195,6 +200,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 

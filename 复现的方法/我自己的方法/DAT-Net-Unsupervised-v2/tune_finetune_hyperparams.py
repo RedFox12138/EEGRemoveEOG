@@ -40,10 +40,10 @@ except Exception:
 
 # ========== 固定配置 ==========
 BATCH_SIZE = 200
-SAMPLING_RATE = 200.0
+SAMPLING_RATE = 250
 DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-EPOCHS = 200  # 调优时减少epoch数以加快速度
-PRETRAINED_PATH = 'checkpoints/datnet_unsupervised_v2_semi_simulated_best_rrmse.pth'
+EPOCHS = 30  # 调优时减少epoch数以加快速度
+PRETRAINED_PATH = 'checkpoints/datnet_unsupervised_v2_fully_simulated_best_rrmse_2.pth'
 
 # 全局变量：记录当前最佳参数
 BEST_PARAMS_LOG_FILE = 'best_params_finetune_live.json'
@@ -101,14 +101,14 @@ def get_data():
         # 使用预先生成的微调数据集（均匀采样自5种SNR）
         print(f"✓ 检测到预生成的微调数据集")
         train_x = scipy.io.loadmat(FINETUNE_CONTAMINATED_PATH)[DATA_KEY]
-        train_y = scipy.io.loadmat(FINETUNE_PURE_PATH)[DATA_KEY]
+        train_y = scipy.io.loadmat(FINETUNE_PURE_PATH)[PURE_KEY]  # 修复：使用PURE_KEY
         print(f"✓ 加载微调数据: {train_x.shape}")
         print(f"  来源: 从5种SNR中均匀采样{int(FINETUNE_RATIO*100)}%训练数据")
     else:
         # 回退到旧逻辑：从完整训练集前面取比例数据（全模拟数据集）
         print(f"✓ 未找到预生成的微调数据集，使用传统方式（从完整训练集前面取数据）")
         full_train_x = scipy.io.loadmat(TRAIN_CONTAMINATED_PATH)[DATA_KEY]
-        full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[DATA_KEY]
+        full_train_y = scipy.io.loadmat(TRAIN_PURE_PATH)[PURE_KEY]  # 修复：使用PURE_KEY
         
         # 取前N%数据
         num_samples = int(len(full_train_x) * FINETUNE_RATIO)
@@ -119,7 +119,7 @@ def get_data():
     
     # 验证集
     val_x = scipy.io.loadmat(VAL_CONTAMINATED_PATH)[DATA_KEY]
-    val_y = scipy.io.loadmat(VAL_PURE_PATH)[DATA_KEY]
+    val_y = scipy.io.loadmat(VAL_PURE_PATH)[PURE_KEY]  # 修复：使用PURE_KEY
     print(f"✓ 加载验证数据: {val_x.shape}")
     
     return train_x, train_y, val_x, val_y
@@ -379,7 +379,7 @@ def main():
     )
     
     # 开始优化
-    n_trials = 50
+    n_trials = 100
     print(f'\n开始超参数搜索 (共 {n_trials} trials)...\n')
     
     study.optimize(objective, n_trials=n_trials, show_progress_bar=True)

@@ -24,7 +24,7 @@ from dataset_config import get_dataset_config
 
 def get_test_data_by_snr(snr_level, batch_size=256):
     """加载指定SNR级别的测试数据"""
-    config = get_dataset_config('semi_simulated')
+    config = get_dataset_config(DATASET_NAME)
     
     if 'test_snr_paths' in config:
         # 多SNR测试集
@@ -37,7 +37,7 @@ def get_test_data_by_snr(snr_level, batch_size=256):
     
     import scipy.io as sio
     test_input = sio.loadmat(contaminated_path)[config['data_key']]
-    test_output = sio.loadmat(pure_path)[config['data_key']]
+    test_output = sio.loadmat(pure_path)[config.get('pure_key', config['data_key'])]
     
     print(f"SNR={snr_level}dB 测试集形状: {test_input.shape}")
     
@@ -292,7 +292,7 @@ def main():
         return
 
     # 获取配置
-    config = get_dataset_config('semi_simulated')
+    config = get_dataset_config(DATASET_NAME)
     pred_output_dir = r'D:\Pycharm_Projects\EOG Remove\复现的方法\results'
     os.makedirs(pred_output_dir, exist_ok=True)
 

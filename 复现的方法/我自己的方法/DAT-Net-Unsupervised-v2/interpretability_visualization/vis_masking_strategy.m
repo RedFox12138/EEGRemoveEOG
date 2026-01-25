@@ -127,14 +127,14 @@ function vis_masking_strategy(sample_idx, channel_idx, config)
     y_max = max(x);
     mask_indices = find(mask_artifact > 0);
     if ~isempty(mask_indices)
-        % 使用patch一次性绘制所有掩蔽区域
+        % 确保索引有效
+        mask_indices = mask_indices(mask_indices > 0 & mask_indices <= length(time));
+        % 使用patch绘制所有掩蔽区域
         for i = 1:length(mask_indices)
             idx = mask_indices(i);
-            if idx > 0 && idx <= length(time)
-                patch([time(idx)-0.01 time(idx)+0.01 time(idx)+0.01 time(idx)-0.01], ...
-                      [y_min y_min y_max y_max], 'y', 'FaceAlpha', 0.3, ...
-                      'EdgeColor', 'none', 'HandleVisibility', 'off');
-            end
+            patch([time(idx)-0.01 time(idx)+0.01 time(idx)+0.01 time(idx)-0.01], ...
+                  [y_min y_min y_max y_max], 'y', 'FaceAlpha', 0.3, ...
+                  'EdgeColor', 'none', 'HandleVisibility', 'off');
         end
     end
     
@@ -154,13 +154,13 @@ function vis_masking_strategy(sample_idx, channel_idx, config)
     % 标记掩蔽区域 - 使用patch更高效
     mask_indices = find(mask_random > 0);
     if ~isempty(mask_indices)
+        % 确保索引有效
+        mask_indices = mask_indices(mask_indices > 0 & mask_indices <= length(time));
         for i = 1:length(mask_indices)
             idx = mask_indices(i);
-            if idx > 0 && idx <= length(time)
-                patch([time(idx)-0.01 time(idx)+0.01 time(idx)+0.01 time(idx)-0.01], ...
-                      [y_min y_min y_max y_max], 'y', 'FaceAlpha', 0.3, ...
-                      'EdgeColor', 'none', 'HandleVisibility', 'off');
-            end
+            patch([time(idx)-0.01 time(idx)+0.01 time(idx)+0.01 time(idx)-0.01], ...
+                  [y_min y_min y_max y_max], 'y', 'FaceAlpha', 0.3, ...
+                  'EdgeColor', 'none', 'HandleVisibility', 'off');
         end
     end
     
@@ -330,6 +330,7 @@ function [x_masked, mask, p_mask] = generate_artifact_aware_mask(x, p_art, mask_
     mask = double(rand(1, L) < p_mask);
     
     % 如果neighborhood == 0，直接置零
+    neighborhood = round(neighborhood);  % 确保neighborhood是整数
     if neighborhood <= 0
         x_masked = x;
         x_masked(mask > 0) = 0;
@@ -344,6 +345,7 @@ function [x_masked, mask, p_mask] = generate_artifact_aware_mask(x, p_art, mask_
     base_idx = 1:L;
     gather_idx = base_idx + offsets;
     gather_idx = max(1, min(gather_idx, L));  % 边界处理
+    gather_idx = round(gather_idx);  % 确保索引是整数
     
     % 收集邻域值
     gathered = x(gather_idx);
@@ -361,14 +363,22 @@ function [x_masked, mask] = generate_random_mask(x, mask_ratio, neighborhood)
     
     % 随机选择掩蔽位置
     num_mask = round(L * mask_ratio);
+    if num_mask > L
+        num_mask = L;
+    end
+    if num_mask < 1
+        num_mask = 1;
+    end
+    
     mask_indices = randperm(L, num_mask);
     
     mask = zeros(1, L);
     
-    % 扩展邻域
+    % 扩展邻域 - 确保索引为整数
+    neighborhood = round(neighborhood);  % 确保neighborhood是整数
     for idx = mask_indices
-        start_idx = max(1, idx - floor(neighborhood/2));
-        end_idx = min(L, idx + floor(neighborhood/2));
+        start_idx = max(1, round(idx - floor(neighborhood/2)));
+        end_idx = min(L, round(idx + floor(neighborhood/2)));
         mask(start_idx:end_idx) = 1;
     end
     

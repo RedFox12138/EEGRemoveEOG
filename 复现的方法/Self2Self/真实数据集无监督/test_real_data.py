@@ -75,29 +75,36 @@ def load_data():
     np.random.seed(RANDOM_SEED)
     indices = np.random.permutation(n_samples)
     
-    train_size = int(n_samples * TRAIN_RATIO)
-    val_indices = indices[train_size:]
+    # 按照 7:1:2 划分，取最后 20% 作为测试集
+    test_start_idx = int(n_samples * (TRAIN_RATIO + VAL_RATIO))
+    test_indices = indices[test_start_idx:]
     
-    test_x = data[val_indices]
+    test_x = data[test_indices]
     
-    print(f'  测试集样本数: {test_x.shape[0]} ({VAL_RATIO*100:.0f}%)')
+    print(f'  测试集样本数: {test_x.shape[0]} ({TEST_RATIO*100:.0f}%)')
     
     return test_x
 
 
-def test_model(model, device, test_loader, n_predictions=100):
+def test_model(model, device, test_loader, n_predictions=1):
     """
     在验证集上进行测试
-    Self2Self推理：多次前向传播并平均
+    默认为单次推理模式 (model.eval())
+    如果 n_predictions > 1，则启用 Dropout Ensemble 模式 (model.train())
     
     Args:
-        n_predictions: 预测次数（用于平均）
+        n_predictions: 预测次数（1为单次推理，>1为Dropout平均）
     
     Returns:
         predictions: 预测的去噪结果 (N, L)
         time_per_sample: 单样本推理时间
     """
-    model.train()  # 保持训练模式以使用Dropout
+    if n_predictions > 1:
+        model.train()  # 保持训练模式以使用Dropout
+        print(f"启用 Dropout Ensemble 推理 (N={n_predictions})...")
+    else:
+        model.eval()   # 评估模式，关闭Dropout
+        print("启用单次推理模式...")
     
     all_predictions = []
     all_norm_mins = []
@@ -111,14 +118,18 @@ def test_model(model, device, test_loader, n_predictions=100):
             noisy = noisy.unsqueeze(1).to(device)
             batch_size = noisy.size(0)
             
-            # 多次前向传播并平均（Self2Self的核心）
-            preds = []
-            for _ in range(n_predictions):
-                pred = model(noisy)
-                preds.append(pred)
-            
-            # 平均所有预测
-            avg_pred = torch.mean(torch.stack(preds, dim=0), dim=0)
+            if n_predictions > 1:
+                # 多次前向传播并平均（Self2Self的核心）
+                preds = []
+                for _ in range(n_predictions):
+                    pred = model(noisy)
+                    preds.append(pred)
+                
+                # 平均所有预测
+                avg_pred = torch.mean(torch.stack(preds, dim=0), dim=0)
+            else:
+                # 单次推理
+                avg_pred = model(noisy)
             
             # 收集结果
             all_predictions.append(avg_pred.squeeze(1).cpu().numpy())
